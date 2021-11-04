@@ -41,7 +41,7 @@ void nano::socket::async_connect (nano::tcp_endpoint const & endpoint_a, std::fu
 	}));
 }
 
-void nano::socket::async_read (std::shared_ptr<std::vector<uint8_t>> const & buffer_a, size_t size_a, std::function<void (boost::system::error_code const &, size_t)> callback_a)
+void nano::socket::async_read (std::shared_ptr<std::vector<uint8_t>> const & buffer_a, std::size_t size_a, std::function<void (boost::system::error_code const &, std::size_t)> callback_a)
 {
 	if (size_a <= buffer_a->size ())
 	{
@@ -52,7 +52,7 @@ void nano::socket::async_read (std::shared_ptr<std::vector<uint8_t>> const & buf
 			boost::asio::post (strand, boost::asio::bind_executor (strand, [buffer_a, callback_a, size_a, this_l] () {
 				boost::asio::async_read (this_l->tcp_socket, boost::asio::buffer (buffer_a->data (), size_a),
 				boost::asio::bind_executor (this_l->strand,
-				[this_l, buffer_a, callback_a] (boost::system::error_code const & ec, size_t size_a) {
+				[this_l, buffer_a, callback_a] (boost::system::error_code const & ec, std::size_t size_a) {
 					this_l->node.stats.add (nano::stat::type::traffic_tcp, nano::stat::dir::in, size_a);
 					this_l->stop_timer ();
 					callback_a (ec, size_a);
@@ -68,7 +68,7 @@ void nano::socket::async_read (std::shared_ptr<std::vector<uint8_t>> const & buf
 	}
 }
 
-void nano::socket::async_write (nano::shared_const_buffer const & buffer_a, std::function<void (boost::system::error_code const &, size_t)> const & callback_a)
+void nano::socket::async_write (nano::shared_const_buffer const & buffer_a, std::function<void (boost::system::error_code const &, std::size_t)> const & callback_a)
 {
 	if (!closed)
 	{
@@ -124,7 +124,7 @@ void nano::socket::stop_timer ()
 void nano::socket::checkup ()
 {
 	std::weak_ptr<nano::socket> this_w (shared_from_this ());
-	node.workers.add_timed_task (std::chrono::steady_clock::now () + std::chrono::seconds (node.network_params.network.is_dev_network () ? 1 : 2), [this_w] () {
+	node.workers.add_timed_task (std::chrono::steady_clock::now () + std::chrono::seconds (2), [this_w] () {
 		if (auto this_l = this_w.lock ())
 		{
 			uint64_t now (nano::seconds_since_epoch ());
@@ -196,7 +196,12 @@ nano::tcp_endpoint nano::socket::remote_endpoint () const
 	return remote;
 }
 
-nano::server_socket::server_socket (nano::node & node_a, boost::asio::ip::tcp::endpoint local_a, size_t max_connections_a) :
+nano::tcp_endpoint nano::socket::local_endpoint () const
+{
+	return tcp_socket.local_endpoint ();
+}
+
+nano::server_socket::server_socket (nano::node & node_a, boost::asio::ip::tcp::endpoint local_a, std::size_t max_connections_a) :
 	socket{ node_a, std::chrono::seconds::max () },
 	acceptor{ node_a.io_ctx },
 	local{ local_a },
@@ -264,7 +269,7 @@ void nano::server_socket::on_connection (std::function<bool (std::shared_ptr<nan
 				// Make sure the new connection doesn't idle. Note that in most cases, the callback is going to start
 				// an IO operation immediately, which will start a timer.
 				new_connection->checkup ();
-				new_connection->start_timer (this_l->node.network_params.network.is_dev_network () ? std::chrono::seconds (2) : this_l->node.network_params.node.idle_timeout);
+				new_connection->start_timer (this_l->node.network_params.network.is_dev_network () ? std::chrono::seconds (2) : this_l->node.network_params.network.idle_timeout);
 				this_l->node.stats.inc (nano::stat::type::tcp, nano::stat::detail::tcp_accept_success, nano::stat::dir::in);
 				this_l->connections.push_back (new_connection);
 				if (callback_a (new_connection, ec_a))
@@ -300,6 +305,9 @@ void nano::server_socket::on_connection (std::function<bool (std::shared_ptr<nan
 	}));
 }
 
+// If we are unable to accept a socket, for any reason, we wait just a little (1ms) before rescheduling the next connection accept.
+// The intention is to throttle back the connection requests and break up any busy loops that could possibly form and
+// give the rest of the system a chance to recover.
 void nano::server_socket::on_connection_requeue_delayed (std::function<bool (std::shared_ptr<nano::socket> const &, boost::system::error_code const &)> callback_a)
 {
 	auto this_l (std::static_pointer_cast<nano::server_socket> (shared_from_this ()));

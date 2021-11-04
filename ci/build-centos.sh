@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 TAGS=$(git describe --abbrev=0 --tags)
-VERSIONS=$(echo $TAGS | sed 's/V//')
+VERSIONS=${TAGS//V/}
 RELEASE=$(echo $CI_JOB_ID)
 
 run_source() {
@@ -15,7 +15,8 @@ run_build() {
 }
 
 run_update() {
-	for file in ./bananocoin*.in; do
+	for file in ./nanocurrency*.in; do
+
 		outfile="$(echo "${file}" | sed 's@\.in$@@')"
 
 		echo "Updating \"${outfile}\"..."
