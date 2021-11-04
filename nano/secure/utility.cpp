@@ -21,7 +21,7 @@ boost::filesystem::path nano::working_path (nano::networks network)
 			result /= "BananoBeta";
 			break;
 		case nano::networks::nano_live_network:
-			result /= "Banano";
+			result /= "BananoData";
 			break;
 		case nano::networks::nano_test_network:
 			result /= "BananoTest";
