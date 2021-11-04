@@ -71,9 +71,9 @@ enum class networks : uint16_t
 	// Normal work parameters, secret beta genesis key, beta IP ports
 	nano_beta_network = 0x4242, // 'B', 'B'
 	// Normal work parameters, secret live key, live IP ports
-	nano_live_network = 0x4243, // 'B', 'C'
+	nano_live_network = 0x4258, // 'B', 'X'
 	// Normal work parameters, secret test genesis key, test IP ports
-	nano_test_network = 0x4258, // 'B', 'X'
+	nano_test_network = 0x4243, // 'B', 'C'
 };
 
 enum class work_version
