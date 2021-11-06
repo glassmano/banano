@@ -16,7 +16,6 @@ run_build() {
 
 run_update() {
 	for file in ./nanocurrency*.in; do
-
 		outfile="$(echo "${file}" | sed 's@\.in$@@')"
 
 		echo "Updating \"${outfile}\"..."
