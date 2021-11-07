@@ -1825,7 +1825,7 @@ nano_qt::advanced_actions::advanced_actions (nano_qt::wallet & wallet_a) :
 	QObject::connect (nano_unit, &QRadioButton::toggled, [this] () {
 		if (nano_unit->isChecked ())
 		{
-			this->wallet.change_rendering_ratio (nano::Mxrb_ratio);
+			this->wallet.change_rendering_ratio (nano::BAN_ratio);
 			QSettings ().setValue (saved_ratio_key, ratio_group->id (nano_unit));
 		}
 	});
