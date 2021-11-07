@@ -111,7 +111,7 @@ TEST (difficulty, network_constants)
 	auto & beta_thresholds = nano::work_thresholds::publish_beta;
 	auto & dev_thresholds = nano::work_thresholds::publish_dev;
 
-	ASSERT_NEAR (32., nano::difficulty::to_multiplier (full_thresholds.epoch_2, full_thresholds.epoch_1), 1e-10);
+	ASSERT_NEAR (24., nano::difficulty::to_multiplier (full_thresholds.epoch_2, full_thresholds.epoch_1), 1e-10);
 	ASSERT_NEAR (1 / 8., nano::difficulty::to_multiplier (full_thresholds.epoch_2_receive, full_thresholds.epoch_1), 1e-10);
 	ASSERT_NEAR (1., nano::difficulty::to_multiplier (full_thresholds.epoch_2_receive, full_thresholds.entry), 1e-10);
 	ASSERT_NEAR (1., nano::difficulty::to_multiplier (full_thresholds.epoch_2, full_thresholds.base), 1e-10);
