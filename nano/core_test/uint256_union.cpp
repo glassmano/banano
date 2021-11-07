@@ -383,7 +383,7 @@ TEST (uint256_union, account_transcode)
 	 * Handle different offsets for the underscore separator
 	 * for "ban_" prefixed and "nano_" prefixed accounts
 	 */
-	unsigned offset = (text.front () == 'x') ? 3 : 4;
+	unsigned offset = (text.front () == 'b') ? 3 : 4;
 	ASSERT_EQ ('_', text[offset]);
 	text[offset] = '-';
 	nano::account value2;
@@ -401,7 +401,7 @@ TEST (uint256_union, account_encode_lex)
 	/*
 	 * Handle different lengths for "ban_" prefixed and "nano_" prefixed accounts
 	 */
-	unsigned length = (min_text.front () == 'x') ? 64 : 65;
+	unsigned length = (min_text.front () == 'b') ? 64 : 65;
 	ASSERT_EQ (length, min_text.size ());
 	ASSERT_EQ (length, max_text.size ());
 
