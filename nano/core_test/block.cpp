@@ -630,7 +630,7 @@ TEST (block_builder, open)
 				 .representative_address ("ban_1bananobh5rat99qfgt1ptpieie5swmoth87thi74qgbfrij7dcgjiij94xr")
 				 .source_hex ("2514452A978F08D1CF76BB40B6AD064183CF275D3CC5D3E0515DC96E2112AD4E")
 				 .build (ec);
-	ASSERT_EQ (block->hash ().to_string (), "991CF190094C00F0B68E2E5F75F6BEE95A2E0BD93CEAA4A6734DB9F19B728948");
+	ASSERT_EQ (block->hash ().to_string (), "F61A79F286ABC5CC01D3D09686F0567812B889A5C63ADE0E82DD30F3B2D96463");
 	ASSERT_EQ (block->source ().to_string (), "2514452A978F08D1CF76BB40B6AD064183CF275D3CC5D3E0515DC96E2112AD4E");
 	ASSERT_TRUE (block->destination ().is_zero ());
 	ASSERT_TRUE (block->link ().is_zero ());
@@ -710,7 +710,7 @@ TEST (block_builder, send)
 				 .build (ec);
 	ASSERT_EQ (block->hash ().to_string (), "4560E7B1F3735D082700CFC2852F5D1F378F7418FD24CEF1AD45AB69316F15CD");
 	ASSERT_TRUE (block->source ().is_zero ());
-	ASSERT_EQ (block->destination ().to_account (), "nano_1gys8r4crpxhp94n4uho5cshaho81na6454qni5gu9n53gksoyy1wcd4udyb");
+	ASSERT_EQ (block->destination ().to_account (), "ban_1gys8r4crpxhp94n4uho5cshaho81na6454qni5gu9n53gksoyy1wcd4udyb");
 	ASSERT_TRUE (block->link ().is_zero ());
 }
 
