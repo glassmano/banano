@@ -52,7 +52,7 @@ TEST (message, publish_serialization)
 		publish.header.serialize (stream);
 	}
 	ASSERT_EQ (8, bytes.size ());
-	ASSERT_EQ (0x52, bytes[0]);
+	ASSERT_EQ (0x42, bytes[0]);
 	ASSERT_EQ (0x41, bytes[1]);
 	ASSERT_EQ (nano::dev::network_params.network.protocol_version, bytes[2]);
 	ASSERT_EQ (nano::dev::network_params.network.protocol_version, bytes[3]);
