@@ -23,8 +23,8 @@ TEST (difficultyDeathTest, multipliers)
 	}
 
 	{
-		uint64_t base = 0xfffffe0000000000;
-		uint64_t difficulty = 0xffffffc000000000;
+		uint64_t base = 0xffffffc000000000;
+		uint64_t difficulty = 0xfffffe0000000000;
 		double expected_multiplier = 0.125;
 
 		ASSERT_NEAR (expected_multiplier, nano::difficulty::to_multiplier (difficulty, base), 1e-10);
