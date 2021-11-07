@@ -369,7 +369,7 @@ TEST (uint256_union, decode_nano_variant)
 {
 	nano::account key;
 	ASSERT_FALSE (key.decode_account ("ban_1111111111111111111111111111111111111111111111111111hifc8npp"));
-	ASSERT_FALSE (key.decode_account ("nano_1111111111111111111111111111111111111111111111111111hifc8npp"));
+	ASSERT_FALSE (key.decode_account ("ban_1111111111111111111111111111111111111111111111111111hifc8npp"));
 }
 
 TEST (uint256_union, account_transcode)
