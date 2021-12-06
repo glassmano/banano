@@ -30,6 +30,8 @@ add_library(
   config.hpp
   config.cpp
   configbase.hpp
+  convert.cpp
+  convert.hpp
   diagnosticsconfig.hpp
   diagnosticsconfig.cpp
   epoch.hpp

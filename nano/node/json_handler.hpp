@@ -66,6 +66,7 @@ public:
 	void confirmation_height_currently_processing ();
 	void database_txn_tracker ();
 	void delegators ();
+	void delegators_decimal ();
 	void delegators_count ();
 	void deterministic_key ();
 	void epoch_upgrade ();
@@ -88,10 +89,12 @@ public:
 	void pending_exists ();
 	void process ();
 	void pruned_exists ();
+	void raw_to_dec ();
 	void receive ();
 	void receive_minimum ();
 	void receive_minimum_set ();
 	void representatives ();
+	void representatives_decimal ();
 	void representatives_online ();
 	void republish ();
 	void search_pending ();

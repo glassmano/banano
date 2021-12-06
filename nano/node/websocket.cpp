@@ -3,6 +3,7 @@
 #include <nano/boost/asio/strand.hpp>
 #include <nano/lib/tlsconfig.hpp>
 #include <nano/lib/work.hpp>
+#include <nano/lib/convert.hpp>
 #include <nano/node/transport/transport.hpp>
 #include <nano/node/wallet.hpp>
 #include <nano/node/websocket.hpp>
@@ -713,6 +714,7 @@ nano::websocket::message nano::websocket::message_builder::block_confirmed (std:
 	boost::property_tree::ptree message_node_l;
 	message_node_l.add ("account", account_a.to_account ());
 	message_node_l.add ("amount", amount_a.to_string_dec ());
+	message_node_l.add ("amount_decimal", convert_raw_to_dec (amount_a.to_string_dec ()));
 	message_node_l.add ("hash", block_a->hash ().to_string ());
 
 	std::string confirmation_type = "unknown";
@@ -738,6 +740,7 @@ nano::websocket::message nano::websocket::message_builder::block_confirmed (std:
 		election_node_l.add ("duration", election_status_a.election_duration.count ());
 		election_node_l.add ("time", election_status_a.election_end.count ());
 		election_node_l.add ("tally", election_status_a.tally.to_string_dec ());
+		election_node_l.add ("tally_decimal", convert_raw_to_dec (election_status_a.tally.to_string_dec ()));
 		election_node_l.add ("final", election_status_a.final_tally.to_string_dec ());
 		election_node_l.add ("blocks", std::to_string (election_status_a.block_count));
 		election_node_l.add ("voters", std::to_string (election_status_a.voter_count));
@@ -752,6 +755,7 @@ nano::websocket::message nano::websocket::message_builder::block_confirmed (std:
 				entry.put ("timestamp", vote_l.timestamp);
 				entry.put ("hash", vote_l.hash.to_string ());
 				entry.put ("weight", vote_l.weight.convert_to<std::string> ());
+				entry.put ("weight", convert_raw_to_dec (vote_l.weight.convert_to<std::string> ()));
 				election_votes_l.push_back (std::make_pair ("", entry));
 			}
 			election_node_l.add_child ("votes", election_votes_l);

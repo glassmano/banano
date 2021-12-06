@@ -1,6 +1,7 @@
 #include <nano/lib/threading.hpp>
 #include <nano/lib/tomlconfig.hpp>
 #include <nano/lib/utility.hpp>
+#include <nano/lib/convert.hpp>
 #include <nano/node/common.hpp>
 #include <nano/node/daemonconfig.hpp>
 #include <nano/node/node.hpp>
@@ -157,6 +158,7 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 						block_a->serialize_json (block_text);
 						event.add ("block", block_text);
 						event.add ("amount", amount_a.to_string_dec ());
+						event.add ("amount_decimal", convert_raw_to_dec (amount_a.to_string_dec ()));
 						if (is_state_send_a)
 						{
 							event.add ("is_send", is_state_send_a);
@@ -641,7 +643,6 @@ void nano::node::start ()
 	{
 		port_mapping.start ();
 	}
-	wallets.start ();
 	if (config.frontiers_confirmation != nano::frontiers_confirmation_mode::disabled)
 	{
 		workers.push_task ([this_l = shared ()] () {
