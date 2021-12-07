@@ -1,6 +1,6 @@
 #include <nano/lib/convert.hpp>
 
-std::string convert_raw_to_dec(std::string amount_raw, nano::uint128_t ratio)
+std::string convert_raw_to_dec (std::string amount_raw, nano::uint128_t ratio)
 {
 	std::string amount_in_dec = amount_raw; //initialize variable
 	int amount_length = amount_raw.length (); //count digits of input
@@ -17,18 +17,20 @@ std::string convert_raw_to_dec(std::string amount_raw, nano::uint128_t ratio)
 	}
 	else // if amount is at least one whole unit of the desired output
 	{
-		amount_in_dec.insert(amount_in_dec.end() - (divider_length - 1), '.'); // add a dot according to the desired divider
+		amount_in_dec.insert (amount_in_dec.end () - (divider_length - 1), '.'); // add a dot according to the desired divider
 	}
 
 	int unnecessarytrailingzeroscounter = 0;
-	while(amount_in_dec[amount_in_dec.length () - 1 - unnecessarytrailingzeroscounter] == '0') {
+	while (amount_in_dec[amount_in_dec.length () - 1 - unnecessarytrailingzeroscounter] == '0')
+	{
 		unnecessarytrailingzeroscounter++; // count trailing zeros
 	}
 	// if there's no trailing decimals at all because we solely have a whole unit, then lower the counter to keep one 0 after the dot
-	if (unnecessarytrailingzeroscounter == (divider_length - 1)) {
+	if (unnecessarytrailingzeroscounter == (divider_length - 1))
+	{
 		unnecessarytrailingzeroscounter--;
 	}
 
-	amount_in_dec.erase(amount_in_dec.length () - unnecessarytrailingzeroscounter, amount_in_dec.length ()); // remove unnecessary trailing zeros. first parameter is the pos after which the cutoff begins, second parameter is supposed to be the number of characters to be truncated but if it's chosen too high it will just stop at the end 
+	amount_in_dec.erase (amount_in_dec.length () - unnecessarytrailingzeroscounter, amount_in_dec.length ()); // remove unnecessary trailing zeros. first parameter is the pos after which the cutoff begins, second parameter is supposed to be the number of characters to be truncated but if it's chosen too high it will just stop at the end
 	return amount_in_dec;
 }

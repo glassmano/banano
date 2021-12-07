@@ -1,9 +1,9 @@
 #include <nano/crypto_lib/random_pool.hpp>
 #include <nano/lib/blocks.hpp>
+#include <nano/lib/convert.hpp>
 #include <nano/lib/memory.hpp>
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/threading.hpp>
-#include <nano/lib/convert.hpp>
 #include <nano/secure/common.hpp>
 
 #include <crypto/cryptopp/words.h>

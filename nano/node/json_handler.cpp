@@ -1,7 +1,7 @@
 #include <nano/lib/config.hpp>
+#include <nano/lib/convert.hpp>
 #include <nano/lib/json_error_response.hpp>
 #include <nano/lib/timer.hpp>
-#include <nano/lib/convert.hpp>
 #include <nano/node/bootstrap/bootstrap_lazy.hpp>
 #include <nano/node/common.hpp>
 #include <nano/node/election.hpp>
@@ -1981,7 +1981,7 @@ void nano::json_handler::confirmation_history ()
 				election.put ("duration", status.election_duration.count ());
 				election.put ("time", status.election_end.count ());
 				election.put ("tally", status.tally.to_string_dec ());
-				election.put ("tally_decimal", convert_raw_to_dec (status.tally.to_string_dec ()));				
+				election.put ("tally_decimal", convert_raw_to_dec (status.tally.to_string_dec ()));
 				election.add ("final", status.final_tally.to_string_dec ());
 				election.put ("blocks", std::to_string (status.block_count));
 				election.put ("voters", std::to_string (status.voter_count));
@@ -2216,7 +2216,7 @@ void nano::json_handler::delegators_decimal ()
 					std::string balance;
 					nano::uint128_union (info.balance).encode_dec (balance);
 					nano::account const & delegator (i->first);
-					delegators.put (delegator.to_account (), convert_raw_to_dec (balance));					
+					delegators.put (delegator.to_account (), convert_raw_to_dec (balance));
 				}
 			}
 		}
@@ -2907,7 +2907,8 @@ void nano::json_handler::nano_to_raw ()
 	response_errors ();
 }
 
-void nano::json_handler::raw_to_dec () {
+void nano::json_handler::raw_to_dec ()
+{
 	auto amount (amount_impl ());
 	if (!ec)
 	{
@@ -3085,7 +3086,7 @@ void nano::json_handler::pending ()
 						{
 							boost::property_tree::ptree pending_tree;
 							pending_tree.put ("amount", info.amount.number ().convert_to<std::string> ());
-							pending_tree.put ("amount_decimal", convert_raw_to_dec (info.amount.number ().convert_to<std::string>()));
+							pending_tree.put ("amount_decimal", convert_raw_to_dec (info.amount.number ().convert_to<std::string> ()));
 							if (source)
 							{
 								pending_tree.put ("source", info.source.to_account ());
