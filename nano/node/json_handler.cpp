@@ -135,9 +135,9 @@ void nano::json_handler::process_request (bool unsafe_a)
 			{
 				raw_to_dec ();
 			}
-			else if (action == "representatives_decimal")
+			else if (action == "representatives_decimal_millions")
 			{
-				representatives_decimal ();
+				representatives_decimal_millions ();
 			}
 			else if (action == "delegators_decimal")
 			{
