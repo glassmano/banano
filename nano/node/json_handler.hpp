@@ -95,6 +95,7 @@ public:
 	void receive_minimum_set ();
 	void representatives ();
 	void representatives_decimal ();
+	void representatives_decimal_millions ();
 	void representatives_online ();
 	void republish ();
 	void search_pending ();
