@@ -319,7 +319,7 @@ void nano::bootstrap_server::receive_bulk_pull_account_action (boost::system::er
 		{
 			if (node->config.logging.bulk_pull_logging ())
 			{
-				node->logger.try_log (boost::str (boost::format ("Received bulk pull account for %1% with a minimum amount of %2%") % request->account.to_account () % nano::amount (request->minimum_amount).format_balance (nano::BAN_ratio, 10, true)));
+				node->logger.try_log (boost::str (boost::format ("Received bulk pull account for %1% with a minimum amount of %2%") % request->account.to_account () % nano::amount (request->minimum_amount).format_balance (nano::Mxrb_ratio, 10, true)));
 			}
 			if (is_bootstrap_connection () && !node->flags.disable_bootstrap_bulk_pull_server)
 			{
@@ -662,10 +662,24 @@ public:
 	}
 	void node_id_handshake (nano::node_id_handshake const & message_a) override
 	{
+		// check for multiple handshake messages, there is no reason to receive more than one
+		if (message_a.query && connection->handshake_query_received)
+		{
+			if (connection->node->config.logging.network_node_id_handshake_logging ())
+			{
+				connection->node->logger.try_log (boost::str (boost::format ("Detected multiple node_id_handshake query from %1%") % connection->remote_endpoint));
+			}
+			connection->stop ();
+			return;
+		}
+
+		connection->handshake_query_received = true;
+
 		if (connection->node->config.logging.network_node_id_handshake_logging ())
 		{
 			connection->node->logger.try_log (boost::str (boost::format ("Received node_id_handshake message from %1%") % connection->remote_endpoint));
 		}
+
 		if (message_a.query)
 		{
 			boost::optional<std::pair<nano::account, nano::signature>> response (std::make_pair (connection->node->node_id.pub, nano::sign_message (connection->node->node_id.prv, connection->node->node_id.pub, *message_a.query)));

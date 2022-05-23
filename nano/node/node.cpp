@@ -1,4 +1,3 @@
-#include <nano/lib/convert.hpp>
 #include <nano/lib/threading.hpp>
 #include <nano/lib/tomlconfig.hpp>
 #include <nano/lib/utility.hpp>
@@ -17,6 +16,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
 #include <future>
 #include <sstream>
 
@@ -73,6 +73,33 @@ std::unique_ptr<nano::container_info_component> nano::collect_container_info (re
 	auto composite = std::make_unique<container_info_composite> (name);
 	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "active", count, sizeof_element }));
 	return composite;
+}
+
+nano::keypair nano::load_or_create_node_id (boost::filesystem::path const & application_path, nano::logger_mt & logger)
+{
+	auto node_private_key_path = application_path / "node_id_private.key";
+	std::ifstream ifs (node_private_key_path.c_str ());
+	if (ifs.good ())
+	{
+		logger.always_log (boost::str (boost::format ("%1% exists, reading node id from it") % node_private_key_path.string ()));
+		std::string node_private_key;
+		ifs >> node_private_key;
+		release_assert (node_private_key.size () == 64);
+		nano::keypair kp = nano::keypair (node_private_key);
+		return kp;
+	}
+	else
+	{
+		// no node_id found, generate new one
+		logger.always_log (boost::str (boost::format ("%1% does not exist, creating a new node_id") % node_private_key_path.string ()));
+		nano::keypair kp;
+		std::ofstream ofs (node_private_key_path.c_str (), std::ofstream::out | std::ofstream::trunc);
+		ofs << kp.prv.to_string () << std::endl
+			<< std::flush;
+		ofs.close ();
+		release_assert (!ofs.fail ());
+		return kp;
+	}
 }
 
 nano::node::node (boost::asio::io_context & io_ctx_a, uint16_t peering_port_a, boost::filesystem::path const & application_path_a, nano::logging const & logging_a, nano::work_pool & work_a, nano::node_flags flags_a, unsigned seq) :
@@ -158,7 +185,6 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 						block_a->serialize_json (block_text);
 						event.add ("block", block_text);
 						event.add ("amount", amount_a.to_string_dec ());
-						event.add ("amount_decimal", convert_raw_to_dec (amount_a.to_string_dec ()));
 						if (is_state_send_a)
 						{
 							event.add ("is_send", is_state_send_a);
@@ -383,7 +409,7 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 			logger.always_log (stream.str ());
 		}
 
-		node_id = nano::keypair ();
+		node_id = nano::load_or_create_node_id (application_path, logger);
 		logger.always_log ("Node ID: ", node_id.pub.to_node_id ());
 
 		if ((network_params.network.is_live_network () || network_params.network.is_beta_network ()) && !flags.inactive_node)
@@ -396,7 +422,7 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 				ledger.bootstrap_weights = bootstrap_weights.second;
 				for (auto const & rep : ledger.bootstrap_weights)
 				{
-					logger.always_log ("Using bootstrap rep weight: ", rep.first.to_account (), " -> ", nano::uint128_union (rep.second).format_balance (BAN_ratio, 0, true), " BAN");
+					logger.always_log ("Using bootstrap rep weight: ", rep.first.to_account (), " -> ", nano::uint128_union (rep.second).format_balance (Mxrb_ratio, 0, true), " XRB");
 				}
 			}
 			ledger.bootstrap_weight_max_blocks = bootstrap_weights.first;
@@ -805,7 +831,7 @@ void nano::node::ongoing_bootstrap ()
 	uint32_t frontiers_age (std::numeric_limits<uint32_t>::max ());
 	auto bootstrap_weight_reached (ledger.cache.block_count >= ledger.bootstrap_weight_max_blocks);
 	auto previous_bootstrap_count (stats.count (nano::stat::type::bootstrap, nano::stat::detail::initiate, nano::stat::dir::out) + stats.count (nano::stat::type::bootstrap, nano::stat::detail::initiate_legacy_age, nano::stat::dir::out));
-	/* 
+	/*
 	- Maximum value for 25% of attempts or if block count is below preconfigured value (initial bootstrap not finished)
 	- Node shutdown time minus 1 hour for start attempts (warm up)
 	- Default age value otherwise (1 day for live network, 1 hour for beta)
@@ -1092,13 +1118,13 @@ void nano::node::ongoing_ledger_pruning ()
 
 int nano::node::price (nano::uint128_t const & balance_a, int amount_a)
 {
-	debug_assert (balance_a >= amount_a * nano::MBAN_ratio);
+	debug_assert (balance_a >= amount_a * nano::Gxrb_ratio);
 	auto balance_l (balance_a);
 	double result (0.0);
 	for (auto i (0); i < amount_a; ++i)
 	{
-		balance_l -= nano::MBAN_ratio;
-		auto balance_scaled ((balance_l / nano::BAN_ratio).convert_to<double> ());
+		balance_l -= nano::Gxrb_ratio;
+		auto balance_scaled ((balance_l / nano::Mxrb_ratio).convert_to<double> ());
 		auto units (balance_scaled / 1000.0);
 		auto unit_price (((free_cutoff - units) / free_cutoff) * price_max);
 		result += std::min (std::max (0.0, unit_price), price_max);
