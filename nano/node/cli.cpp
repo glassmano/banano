@@ -1314,7 +1314,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	{
 		if (vm.count ("file") == 1)
 		{
-			auto inactive_node = nano::default_inactive_node(data_path, vm);
+			auto inactive_node = nano::default_inactive_node (data_path, vm);
 			std::string filename (vm["file"].as<std::string> ());
 			std::ifstream stream;
 			stream.open (filename.c_str ());
@@ -1326,7 +1326,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 				boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 				auto transaction (inactive_node->node->store.tx_begin_read ());
 				std::vector<std::pair<nano::block_hash, uint64_t>> pairs;
-				pairs.reserve (inactive_node->node->store.block.count(transaction));
+				pairs.reserve (inactive_node->node->store.block.count (transaction));
 
 				std::cout << "Reading file..." << std::endl;
 				std::stringstream contents;
@@ -1376,7 +1376,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 					auto transaction (inactive_node->node->store.tx_begin_write ());
 					for (auto i (pairs.begin ()), n (pairs.end ()); i != n; ++i, ++count)
 					{
-						auto block (inactive_node->node->store.block.get(transaction, i->first));
+						auto block (inactive_node->node->store.block.get (transaction, i->first));
 						if (block)
 						{
 							auto sideband_with_stamp = block->sideband ();
@@ -1411,7 +1411,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("timestamps_export") == 1)
 	{
-		auto inactive_node = nano::default_inactive_node(data_path, vm);
+		auto inactive_node = nano::default_inactive_node (data_path, vm);
 
 		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto timestamps_path = data_path / "timestamps.csv";
@@ -1481,7 +1481,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("timestamps_update_frontiers") == 1)
 	{
-		auto inactive_node = nano::default_inactive_node(data_path, vm);
+		auto inactive_node = nano::default_inactive_node (data_path, vm);
 
 		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 
@@ -1496,9 +1496,9 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			inactive_node->node->store.account.put (transaction, i->first, i->second);
 		}
 	}
- 	else
- 	{
- 		ec = nano::error_cli::unknown_command;
+	else
+	{
+		ec = nano::error_cli::unknown_command;
 	}
 
 	return ec;
