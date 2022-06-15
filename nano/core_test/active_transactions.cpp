@@ -392,7 +392,7 @@ TEST (active_transactions, inactive_votes_cache_election_start)
 	nano::send_block_builder send_block_builder;
 	nano::state_block_builder state_block_builder;
 	// Enough weight to trigger election hinting but not enough to confirm block on its own
-	auto amount = ((node.online_reps.trended () / 100) * node.config.election_hint_weight_percent) / 2 + 1000 * nano::Gxrb_ratio;
+	auto amount = ((node.online_reps.trended () / 100) * node.config.election_hint_weight_percent) / 2 + 1000 * nano::MBAN_ratio;
 	auto send1 = send_block_builder.make_block ()
 				 .previous (latest)
 				 .destination (key1.pub)
@@ -1483,7 +1483,7 @@ TEST (active_transactions, limit_vote_hinted_elections)
 		nano::send_block_builder send_block_builder;
 		nano::state_block_builder state_block_builder;
 		// Enough weight to trigger election hinting but not enough to confirm block on its own
-		auto amount = ((node.online_reps.trended () / 100) * node.config.election_hint_weight_percent) / 2 + 1000 * nano::Gxrb_ratio;
+		auto amount = ((node.online_reps.trended () / 100) * node.config.election_hint_weight_percent) / 2 + 1000 * nano::MBAN_ratio;
 		auto send1 = send_block_builder.make_block ()
 					 .previous (latest)
 					 .destination (key1.pub)
