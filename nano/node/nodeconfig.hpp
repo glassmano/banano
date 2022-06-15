@@ -85,6 +85,7 @@ public:
 	std::chrono::seconds tcp_io_timeout{ (network_params.network.is_dev_network () && !is_sanitizer_build) ? std::chrono::seconds (5) : std::chrono::seconds (15) };
 	std::chrono::nanoseconds pow_sleep_interval{ 0 };
 	std::size_t active_elections_size{ 5000 };
+	std::size_t active_elections_hinted_limit_percentage{ 20 }; // Limit of hinted elections as percentage of active_elections_size
 	/** Default maximum incoming TCP connections, including realtime network & bootstrap */
 	unsigned tcp_incoming_connections_max{ 2048 };
 	bool use_memory_pools{ true };
@@ -92,7 +93,7 @@ public:
 	static std::chrono::seconds constexpr keepalive_cutoff = keepalive_period * 5;
 	static std::chrono::minutes constexpr wallet_backup_interval = std::chrono::minutes (5);
 	/** Default outbound traffic shaping is 10MB/s */
-	std::size_t bandwidth_limit{ 2 * 1024 * 1024 };
+	std::size_t bandwidth_limit{ 10 * 1024 * 1024 };
 	/** By default, allow bursts of 15MB/s (not sustainable) */
 	double bandwidth_limit_burst_ratio{ 3. };
 	std::chrono::milliseconds conf_height_processor_batch_min_time{ 50 };
@@ -157,7 +158,7 @@ public:
 	std::size_t block_processor_batch_size{ 0 };
 	std::size_t block_processor_full_size{ 65536 };
 	std::size_t block_processor_verification_size{ 0 };
-	std::size_t inactive_votes_cache_size{ 0 };
+	std::size_t inactive_votes_cache_size{ 1024 * 128 };
 	std::size_t vote_processor_capacity{ 144 * 1024 };
 	std::size_t bootstrap_interval{ 0 }; // For testing only
 };
