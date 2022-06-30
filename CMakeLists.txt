@@ -613,7 +613,7 @@ if(NANO_TEST OR RAIBLOCKS_TEST)
     build_tests
     COMMAND echo "BATCH BUILDING TESTS"
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    DEPENDS core_test load_test rpc_test nano_node banano_rpc)
+    DEPENDS core_test load_test rpc_test banano_node banano_rpc)
 
   add_custom_target(
     run_tests
