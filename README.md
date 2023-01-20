@@ -18,7 +18,7 @@ Banano is designed to be a feeless, instant, high throughput cryptocurrency for 
 
 ### Key facts
 * Forked from NANO (raiblocks)
-* Total Supply: 3,402,823,669.20
+* Total Supply: 1,918,869,420
 * Born in Feb. 2018, Mainnet launch April 1st, 2018
 
 For more information, see [Banano.cc](https://banano.cc).
@@ -28,9 +28,10 @@ For more information, see [Banano.cc](https://banano.cc).
 - [Yellowpaper](https://banano.cc/)
 - [Discord chat](https://chat.banano.cc)
 - [Reddit](http://reddit.com/r/banano)
-- [Fritter](http://twitter.com/bananocoin)
+- [Twitter](http://twitter.com/bananocoin)
 - [GitHub wiki](http://github.com/bananocoin/banano/wiki)
-- [BananoVault](https://vault.banano.cc)
+- [TheBananoStand](https://thebananostand.com/)
+- [BananoVault](https://vault.banano.cc) (Works but is no longer maintained.)
 - [Telegram](https://t.me/joinchat/HX-rIQ-t9Ad2xRcJjztVzg)
 - [Banano.how all links at a glance](http://banano.how/)
 
@@ -39,6 +40,9 @@ For more information, see [Banano.cc](https://banano.cc).
 
 ### Running a Docker node
 - [Running a Docker node](https://github.com/BananoCoin/banano/wiki/Running-a-Docker-Bananode)
+
+### Ledger files
+- [Pre-built banano blockchain databases](https://ledgerfiles.banano.cc/)
 
 ### Want to contribute?
 
