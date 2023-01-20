@@ -660,7 +660,7 @@ void nano::json_handler::account_info ()
 				std::string confirmed_balance;
 				confirmed_balance_l.encode_dec (confirmed_balance);
 				response_l.put ("confirmed_balance", confirmed_balance);
-				response_l.put ("confirmed_balance", convert_raw_to_dec (confirmed_balance));
+				response_l.put ("confirmed_balance_decimal", convert_raw_to_dec (confirmed_balance));
 			}
 
 			response_l.put ("modified_timestamp", std::to_string (info.modified));
