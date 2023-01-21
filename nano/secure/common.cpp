@@ -84,9 +84,9 @@ nano::keypair nano::dev::genesis_key{ dev_private_key_data };
 nano::network_params nano::dev::network_params{ nano::networks::banano_dev_network };
 nano::ledger_constants & nano::dev::constants{ nano::dev::network_params.ledger };
 std::shared_ptr<nano::block> & nano::dev::genesis = nano::dev::constants.genesis;
-0
+
 nano::network_params::network_params (nano::networks network_a) :
-	work{ network_a == nano::networks::banano_live_network ? nano::work_thresholds::publish_full : network_a == nano::networks::babanano_beta_network ? nano::work_thresholds::publish_beta
+	work{ network_a == nano::networks::banano_live_network ? nano::work_thresholds::publish_full : network_a == nano::networks::banano_beta_network ? nano::work_thresholds::publish_beta
 		: network_a == nano::networks::banano_test_network                                                                                        ? nano::work_thresholds::publish_test
 																																				: nano::work_thresholds::publish_dev },
 	network{ work, network_a },
