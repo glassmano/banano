@@ -172,7 +172,8 @@ void nano::rep_crawler::query (std::vector<std::shared_ptr<nano::transport::chan
 	}
 	if (!channels_a.empty ())
 	{
-		node.active.erase_recently_confirmed (hash_root.first);
+		// In case our random block is a recently confirmed one, we remove an entry otherwise votes will be marked as replay and not forwarded to repcrawler
+		node.active.recently_confirmed.erase (hash_root.first);
 	}
 	for (auto i (channels_a.begin ()), n (channels_a.end ()); i != n; ++i)
 	{
@@ -229,13 +230,13 @@ bool nano::rep_crawler::is_pr (nano::transport::channel const & channel_a) const
 	return result;
 }
 
-bool nano::rep_crawler::response (std::shared_ptr<nano::transport::channel> const & channel_a, std::shared_ptr<nano::vote> const & vote_a)
+bool nano::rep_crawler::response (std::shared_ptr<nano::transport::channel> const & channel_a, std::shared_ptr<nano::vote> const & vote_a, bool force)
 {
 	bool error = true;
 	nano::lock_guard<nano::mutex> lock (active_mutex);
-	for (auto i = vote_a->begin (), n = vote_a->end (); i != n; ++i)
+	for (auto i = vote_a->hashes.begin (), n = vote_a->hashes.end (); i != n; ++i)
 	{
-		if (active.count (*i) != 0)
+		if (force || active.count (*i) != 0)
 		{
 			responses.emplace_back (channel_a, vote_a);
 			error = false;
@@ -251,14 +252,17 @@ nano::uint128_t nano::rep_crawler::total_weight () const
 	nano::uint128_t result (0);
 	for (auto i (probable_reps.get<tag_weight> ().begin ()), n (probable_reps.get<tag_weight> ().end ()); i != n; ++i)
 	{
-		auto weight (i->weight.number ());
-		if (weight > 0)
+		if (i->channel->alive ())
 		{
-			result = result + weight;
-		}
-		else
-		{
-			break;
+			auto weight (i->weight.number ());
+			if (weight > 0)
+			{
+				result = result + weight;
+			}
+			else
+			{
+				break;
+			}
 		}
 	}
 	return result;
@@ -291,7 +295,7 @@ void nano::rep_crawler::cleanup_reps ()
 		auto iterator (probable_reps.get<tag_last_request> ().begin ());
 		while (iterator != probable_reps.get<tag_last_request> ().end ())
 		{
-			if (iterator->channel->get_tcp_endpoint ().address () != boost::asio::ip::address_v6::any ())
+			if (iterator->channel->alive ())
 			{
 				channels.push_back (iterator->channel);
 				++iterator;
@@ -322,6 +326,10 @@ void nano::rep_crawler::cleanup_reps ()
 			{
 				equal = true;
 			}
+		}
+		else if (i->get_type () == nano::transport::transport_type::fake)
+		{
+			equal = true;
 		}
 		if (!equal)
 		{

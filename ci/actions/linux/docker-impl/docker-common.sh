@@ -4,13 +4,13 @@ set -e
 set -a
 
 scripts="$PWD/ci"
-TRAVIS_BRANCH=$(git branch | cut -f2 -d' ')
+CI_BRANCH=$(git branch | cut -f2 -d' ')
 tags=()
-if [ -n "$TRAVIS_TAG" ]; then
-    tags+=("$TRAVIS_TAG")
-elif [ -n "$TRAVIS_BRANCH" ]; then
-    TRAVIS_TAG=$TRAVIS_BRANCH
-    tags+=("$TRAVIS_BRANCH")
+if [ -n "$CI_TAG" ]; then
+    tags+=("$CI_TAG")
+elif [ -n "$CI_BRANCH" ]; then
+    CI_TAG=$CI_BRANCH
+    tags+=("$CI_BRANCH")
 fi
 if [[ "$GITHUB_WORKFLOW" = "Live" ]]; then
     echo "Live"
@@ -26,15 +26,20 @@ elif [[ "$GITHUB_WORKFLOW" = "Test" ]]; then
     network="test"
 fi
 
-if [[ "$GITHUB_WORKFLOW" != "Develop" ]]; then
+if [[ "$GITHUB_WORKFLOW" != "Develop Branch Dockers Deploy" ]]; then
     docker_image_name="nanocurrency/nano${network_tag_suffix}"
 fi
 
 docker_build()
 {
-    if [[ "$GITHUB_WORKFLOW" != "Develop" ]]; then
-        ghcr_image_name="ghcr.io/bananocoin/nano${network_tag_suffix}"
-        "$scripts"/build-docker-image.sh docker/node/Dockerfile "$docker_image_name" --build-arg NETWORK="$network" --build-arg CI_BUILD=true --build-arg TRAVIS_TAG="$TRAVIS_TAG"
+    ci_version_pre_release="OFF"
+    if [[ -n "${CI_VERSION_PRE_RELEASE}" ]]; then
+        ci_version_pre_release="$CI_VERSION_PRE_RELEASE"
+    fi
+
+    if [[ "$GITHUB_WORKFLOW" != "Develop Branch Dockers Deploy" ]]; then
+        ghcr_image_name="ghcr.io/${GITHUB_REPOSITORY}/nano${network_tag_suffix}"
+        "$scripts"/build-docker-image.sh docker/node/Dockerfile "$docker_image_name" --build-arg NETWORK="$network" --build-arg CI_BUILD=true --build-arg CI_VERSION_PRE_RELEASE="$ci_version_pre_release" --build-arg CI_TAG="$CI_TAG"
         for tag in "${tags[@]}"; do
             # Sanitize docker tag
             # https://docs.docker.com/engine/reference/commandline/tag/
@@ -51,10 +56,10 @@ docker_deploy()
 {
     if [ -n "$DOCKER_PASSWORD" ]; then
         echo "$DOCKER_PASSWORD" | docker login -u nanoreleaseteam --password-stdin
-        if [[ "$GITHUB_WORKFLOW" = "Develop" ]]; then
+        if [[ "$GITHUB_WORKFLOW" = "Develop Branch Dockers Deploy" ]]; then
             "$scripts"/custom-timeout.sh 30 docker push "nanocurrency/nano-env:base"
             "$scripts"/custom-timeout.sh 30 docker push "nanocurrency/nano-env:gcc"
-            "$scripts"/custom-timeout.sh 30 docker push "nanocurrency/nano-env:clang-6"
+            "$scripts"/custom-timeout.sh 30 docker push "nanocurrency/nano-env:clang"
             echo "Deployed nano-env"
             exit 0
         else

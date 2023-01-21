@@ -1,4 +1,5 @@
 #include <nano/lib/jsonconfig.hpp>
+#include <nano/node/transport/inproc.hpp>
 #include <nano/node/vote_processor.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
@@ -9,13 +10,13 @@ using namespace std::chrono_literals;
 
 TEST (vote_processor, codes)
 {
-	nano::system system (1);
+	nano::test::system system (1);
 	auto & node (*system.nodes[0]);
 	nano::keypair key;
 	auto vote (std::make_shared<nano::vote> (key.pub, key.prv, nano::vote::timestamp_min * 1, 0, std::vector<nano::block_hash>{ nano::dev::genesis->hash () }));
 	auto vote_invalid = std::make_shared<nano::vote> (*vote);
 	vote_invalid->signature.bytes[0] ^= 1;
-	auto channel (std::make_shared<nano::transport::channel_loopback> (node));
+	auto channel (std::make_shared<nano::transport::inproc::channel> (node, node));
 
 	// Invalid signature
 	ASSERT_EQ (nano::vote_code::invalid, node.vote_processor.vote_blocking (vote_invalid, channel, false));
@@ -44,9 +45,9 @@ TEST (vote_processor, codes)
 
 TEST (vote_processor, flush)
 {
-	nano::system system (1);
+	nano::test::system system (1);
 	auto & node (*system.nodes[0]);
-	auto channel (std::make_shared<nano::transport::channel_loopback> (node));
+	auto channel (std::make_shared<nano::transport::inproc::channel> (node, node));
 	for (unsigned i = 0; i < 2000; ++i)
 	{
 		auto vote = std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, nano::vote::timestamp_min * (1 + i), 0, std::vector<nano::block_hash>{ nano::dev::genesis->hash () });
@@ -115,13 +116,13 @@ TEST (vote_processor, producer_consumer)
 
 TEST (vote_processor, invalid_signature)
 {
-	nano::system system{ 1 };
+	nano::test::system system{ 1 };
 	auto & node = *system.nodes[0];
 	nano::keypair key;
 	auto vote = std::make_shared<nano::vote> (key.pub, key.prv, nano::vote::timestamp_min * 1, 0, std::vector<nano::block_hash>{ nano::dev::genesis->hash () });
 	auto vote_invalid = std::make_shared<nano::vote> (*vote);
 	vote_invalid->signature.bytes[0] ^= 1;
-	auto channel = std::make_shared<nano::transport::channel_loopback> (node);
+	auto channel = std::make_shared<nano::transport::inproc::channel> (node, node);
 
 	node.block_confirm (nano::dev::genesis);
 	auto election = node.active.election (nano::dev::genesis->qualified_root ());
@@ -137,25 +138,25 @@ TEST (vote_processor, invalid_signature)
 
 TEST (vote_processor, no_capacity)
 {
-	nano::system system;
+	nano::test::system system;
 	nano::node_flags node_flags;
 	node_flags.vote_processor_capacity = 0;
 	auto & node (*system.add_node (node_flags));
 	nano::keypair key;
 	auto vote (std::make_shared<nano::vote> (key.pub, key.prv, nano::vote::timestamp_min * 1, 0, std::vector<nano::block_hash>{ nano::dev::genesis->hash () }));
-	auto channel (std::make_shared<nano::transport::channel_loopback> (node));
+	auto channel (std::make_shared<nano::transport::inproc::channel> (node, node));
 	ASSERT_TRUE (node.vote_processor.vote (vote, channel));
 }
 
 TEST (vote_processor, overflow)
 {
-	nano::system system;
+	nano::test::system system;
 	nano::node_flags node_flags;
 	node_flags.vote_processor_capacity = 1;
 	auto & node (*system.add_node (node_flags));
 	nano::keypair key;
 	auto vote (std::make_shared<nano::vote> (key.pub, key.prv, nano::vote::timestamp_min * 1, 0, std::vector<nano::block_hash>{ nano::dev::genesis->hash () }));
-	auto channel (std::make_shared<nano::transport::channel_loopback> (node));
+	auto channel (std::make_shared<nano::transport::inproc::channel> (node, node));
 	auto start_time = std::chrono::system_clock::now ();
 
 	// No way to lock the processor, but queueing votes in quick succession must result in overflow
@@ -180,7 +181,7 @@ namespace nano
 {
 TEST (vote_processor, weights)
 {
-	nano::system system (4);
+	nano::test::system system (4);
 	auto & node (*system.nodes[0]);
 
 	// Create representatives of different weight levels
@@ -233,14 +234,14 @@ TEST (vote_processor, weights)
 // Nodes should not relay their own votes
 TEST (vote_processor, no_broadcast_local)
 {
-	nano::system system;
+	nano::test::system system;
 	nano::node_flags flags;
 	flags.disable_request_loop = true;
 	nano::node_config config1, config2;
 	config1.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
 	auto & node (*system.add_node (config1, flags));
 	config2.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
-	config2.peering_port = nano::get_available_port ();
+	config2.peering_port = nano::test::get_available_port ();
 	system.add_node (config2, flags);
 	nano::block_builder builder;
 	std::error_code ec;
@@ -286,14 +287,14 @@ TEST (vote_processor, no_broadcast_local)
 // Done without a representative.
 TEST (vote_processor, local_broadcast_without_a_representative)
 {
-	nano::system system;
+	nano::test::system system;
 	nano::node_flags flags;
 	flags.disable_request_loop = true;
 	nano::node_config config1, config2;
 	config1.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
 	auto & node (*system.add_node (config1, flags));
 	config2.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
-	config2.peering_port = nano::get_available_port ();
+	config2.peering_port = nano::test::get_available_port ();
 	system.add_node (config2, flags);
 	nano::block_builder builder;
 	std::error_code ec;
@@ -334,14 +335,14 @@ TEST (vote_processor, local_broadcast_without_a_representative)
 // Done with a principal representative.
 TEST (vote_processor, no_broadcast_local_with_a_principal_representative)
 {
-	nano::system system;
+	nano::test::system system;
 	nano::node_flags flags;
 	flags.disable_request_loop = true;
 	nano::node_config config1, config2;
 	config1.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
 	auto & node (*system.add_node (config1, flags));
 	config2.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
-	config2.peering_port = nano::get_available_port ();
+	config2.peering_port = nano::test::get_available_port ();
 	system.add_node (config2, flags);
 	nano::block_builder builder;
 	std::error_code ec;
@@ -379,4 +380,27 @@ TEST (vote_processor, no_broadcast_local_with_a_principal_representative)
 	// Ensure the vote was not broadcast.
 	ASSERT_EQ (0, node.stats.count (nano::stat::type::message, nano::stat::detail::confirm_ack, nano::stat::dir::out));
 	ASSERT_EQ (1, node.stats.count (nano::stat::type::message, nano::stat::detail::publish, nano::stat::dir::out));
+}
+
+/**
+ * basic test to check that the timestamp mask is applied correctly on vote timestamp and duration fields
+ */
+TEST (vote, timestamp_and_duration_masking)
+{
+	nano::test::system system;
+	nano::keypair key;
+	auto hash = std::vector<nano::block_hash>{ nano::dev::genesis->hash () };
+	auto vote = std::make_shared<nano::vote> (key.pub, key.prv, 0x123f, 0xf, hash);
+	ASSERT_EQ (vote->timestamp (), 0x1230);
+	ASSERT_EQ (vote->duration ().count (), 524288);
+	ASSERT_EQ (vote->duration_bits (), 0xf);
+}
+
+/**
+ * Test that a vote can encode an empty hash set
+ */
+TEST (vote, empty_hashes)
+{
+	nano::keypair key;
+	auto vote = std::make_shared<nano::vote> (key.pub, key.prv, 0, 0, std::vector<nano::block_hash>{} /* empty */);
 }
