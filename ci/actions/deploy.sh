@@ -20,12 +20,6 @@ else
     DIRECTORY="${S3_BUILD_DIRECTORY}/${BUILD}"
 fi
 
-if [[ "${GITHUB_REPOSITORY:-}" == "nanocurrency/nano-node" ]]; then
-    DIRECTORY=$BUILD
-else
-    DIRECTORY="${S3_BUILD_DIRECTORY}/${BUILD}"
-fi
-
 if [[ "$OS" == 'Linux' && "$IS_RPM_DEPLOY" -eq "1" ]]; then
     RPMS=$(find ${GITHUB_WORKSPACE}/artifacts/RPMS -type f -name '*.rpm')
     SRPMS=$(find ${GITHUB_WORKSPACE}/artifacts/SRPMS -type f -name '*.src.rpm')
