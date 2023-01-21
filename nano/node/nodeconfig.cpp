@@ -46,11 +46,11 @@ nano::node_config::node_config (const std::optional<uint16_t> & peering_port_a, 
 
 	switch (network_params.network.network ())
 	{
-		case nano::networks::nano_dev_network:
+		case nano::networks::banano_dev_network:
 			enable_voting = true;
 			preconfigured_representatives.push_back (network_params.ledger.genesis->account ());
 			break;
-		case nano::networks::nano_beta_network:
+		case nano::networks::banano_beta_network:
 		{
 			preconfigured_peers.emplace_back (default_beta_peer_network);
 			nano::account offline_representative;
@@ -58,7 +58,7 @@ nano::node_config::node_config (const std::optional<uint16_t> & peering_port_a, 
 			preconfigured_representatives.emplace_back (offline_representative);
 			break;
 		}
-		case nano::networks::nano_live_network:
+		case nano::networks::banano_live_network:
 			preconfigured_peers.emplace_back (default_live_peer_network);
 			preconfigured_representatives.emplace_back ("36B3AFC042CCB5099DC163FA2BFE42D6E486991B685EAAB0DF73714D91A59400");
 			preconfigured_representatives.emplace_back ("29126049B40D1755C0A1C02B71646EEAB9E1707C16E94B47100F3228D59B1EB2");
@@ -70,7 +70,7 @@ nano::node_config::node_config (const std::optional<uint16_t> & peering_port_a, 
 			// removed a preconfigured_representative
 
 			break;
-		case nano::networks::nano_test_network:
+		case nano::networks::banano_test_network:
 			preconfigured_peers.push_back (default_test_peer_network);
 			preconfigured_representatives.push_back (network_params.ledger.genesis->account ());
 			break;
