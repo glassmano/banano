@@ -167,11 +167,11 @@ option(
 option(ENABLE_AVX2 "Enable AVX2 optimizations" OFF)
 
 set(ACTIVE_NETWORK
-    nano_live_network
+    banano_live_network
     CACHE STRING "Selects which network parameters are used")
 set_property(
-  CACHE ACTIVE_NETWORK PROPERTY STRINGS nano_dev_network nano_beta_network
-                                nano_live_network nano_test_network)
+  CACHE ACTIVE_NETWORK PROPERTY STRINGS banano_dev_network banano_beta_network
+                                banano_live_network banano_test_network)
 set(CPACK_PACKAGE_NAME
     "nano-node"
     CACHE STRING "" FORCE)
