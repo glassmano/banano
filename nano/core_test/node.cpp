@@ -1618,13 +1618,13 @@ TEST (node, unconfirmed_send)
 
 	// firstly, send two units from node1 to node2 and expect that both nodes see the block as confirmed
 	// (node1 will start an election for it, vote on it and node2 gets synced up)
-	auto send1 = wallet1->send_action (nano::dev::genesis->account (), key2.pub, 2 * nano::Mxrb_ratio);
+	auto send1 = wallet1->send_action (nano::dev::genesis->account (), key2.pub, 2 * nano::BAN_ratio);
 	ASSERT_TIMELY (5s, node1.block_confirmed (send1->hash ()));
 	ASSERT_TIMELY (5s, node2.block_confirmed (send1->hash ()));
 
 	// wait until receive1 (auto-receive created by wallet) is cemented
 	ASSERT_TIMELY (5s, node2.get_confirmation_height (node2.store.tx_begin_read (), key2.pub) == 1);
-	ASSERT_EQ (node2.balance (key2.pub), 2 * nano::Mxrb_ratio);
+	ASSERT_EQ (node2.balance (key2.pub), 2 * nano::BAN_ratio);
 	auto recv1 = node2.ledger.find_receive_block_by_send_hash (node2.store.tx_begin_read (), key2.pub, send1->hash ());
 
 	// create send2 to send from node2 to node1 and save it to node2's ledger without triggering an election (node1 does not hear about it)
@@ -1633,14 +1633,14 @@ TEST (node, unconfirmed_send)
 				 .account (key2.pub)
 				 .previous (recv1->hash ())
 				 .representative (nano::dev::genesis_key.pub)
-				 .balance (nano::Mxrb_ratio)
+				 .balance (nano::BAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (key2.prv, key2.pub)
 				 .work (*system.work.generate (recv1->hash ()))
 				 .build_shared ();
 	ASSERT_EQ (nano::process_result::progress, node2.process (*send2).code);
 
-	auto send3 = wallet2->send_action (key2.pub, nano::dev::genesis->account (), nano::Mxrb_ratio);
+	auto send3 = wallet2->send_action (key2.pub, nano::dev::genesis->account (), nano::BAN_ratio);
 	ASSERT_TIMELY (5s, node2.block_confirmed (send2->hash ()));
 	ASSERT_TIMELY (5s, node1.block_confirmed (send2->hash ()));
 	ASSERT_TIMELY (5s, node2.block_confirmed (send3->hash ()));
