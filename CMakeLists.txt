@@ -183,7 +183,7 @@ set(CPACK_PACKAGE_INSTALL_DIRECTORY
     CACHE STRING "" FORCE)
 set(NANO_SERVICE "bananocoin.service")
 set(NANO_PREFIX "")
-if("${ACTIVE_NETWORK}" MATCHES "nano_beta_network")
+if("${ACTIVE_NETWORK}" MATCHES "banano_beta_network")
   project("nano-node-beta")
   set(CPACK_PACKAGE_NAME
       "nano-node-beta"
@@ -196,7 +196,7 @@ if("${ACTIVE_NETWORK}" MATCHES "nano_beta_network")
       CACHE STRING "" FORCE)
   set(NANO_SERVICE "bananocoin-beta.service")
   set(NANO_PREFIX "Beta")
-elseif("${ACTIVE_NETWORK}" MATCHES "nano_test_network")
+elseif("${ACTIVE_NETWORK}" MATCHES "banano_test_network")
   project("nano-node-test")
   set(CPACK_PACKAGE_NAME
       "nano-node-test"
