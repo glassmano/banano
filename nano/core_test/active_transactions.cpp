@@ -145,7 +145,7 @@ TEST (active_transactions, keep_local)
 
 	nano::node_config node_config{ nano::test::get_available_port (), system.logging };
 	node_config.enable_voting = false;
-	//  Bound to 2, won't drop wallet created transactions, but good to test dropping remote
+	// Bound to 2, won't drop wallet created transactions, but good to test dropping remote
 	node_config.active_elections_size = 2;
 	// Disable frontier confirmation to allow the test to finish before
 	node_config.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
