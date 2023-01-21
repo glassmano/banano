@@ -1299,7 +1299,7 @@ TEST (active_transactions, vacancy)
 					.previous (nano::dev::genesis->hash ())
 					.representative (nano::dev::genesis_key.pub)
 					.link (nano::dev::genesis_key.pub)
-					.balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+					.balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 					.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					.work (*system.work.generate (nano::dev::genesis->hash ()))
 					.build_shared ();
