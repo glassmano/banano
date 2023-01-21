@@ -513,7 +513,7 @@ void nano::transport::tcp_server::bootstrap_message_visitor::bulk_pull_account (
 
 	if (server->node->config.logging.bulk_pull_logging ())
 	{
-		server->node->logger.try_log (boost::str (boost::format ("Received bulk pull account for %1% with a minimum amount of %2%") % message.account.to_account () % nano::amount (message.minimum_amount).format_balance (nano::Mxrb_ratio, 10, true)));
+		server->node->logger.try_log (boost::str (boost::format ("Received bulk pull account for %1% with a minimum amount of %2%") % message.account.to_account () % nano::amount (message.minimum_amount).format_balance (nano::BAN_ratio, 10, true)));
 	}
 
 	server->node->bootstrap_workers.push_task ([server = server, message = message] () {
