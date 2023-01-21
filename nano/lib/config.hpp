@@ -123,13 +123,13 @@ enum class networks : uint16_t
 {
 	invalid = 0x0,
 	// Low work parameters, publicly known genesis key, dev IP ports
-	nano_dev_network = 0x4241, // 'B', 'A'
+	banano_dev_network = 0x4241, // 'B', 'A'
 	// Normal work parameters, secret beta genesis key, beta IP ports
-	nano_beta_network = 0x4242, // 'B', 'B'
+	banano_beta_network = 0x4242, // 'B', 'B'
 	// Normal work parameters, secret live key, live IP ports
-	nano_live_network = 0x4258, // 'B', 'X'
+	banano_live_network = 0x4258, // 'B', 'X'
 	// Normal work parameters, secret test genesis key, test IP ports
-	nano_test_network = 0x4243, // 'B', 'C'
+	banano_test_network = 0x4243, // 'B', 'C'
 };
 
 enum class work_version
@@ -196,7 +196,7 @@ public:
 	network_constants (nano::work_thresholds & work_, nano::networks network_a) :
 		current_network (network_a),
 		work (work_),
-		principal_weight_factor (1000), // 0.1% A representative is classified as principal based on its weight and this factor
+		principal_weight_factor (2000), // 0.2% A representative is classified as principal based on its weight and this factor
 		default_node_port (44000),
 		default_rpc_port (45000),
 		default_ipc_port (46000),
