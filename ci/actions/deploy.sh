@@ -14,7 +14,7 @@ else
     BUILD="live"
 fi
 
-if [[ "${GITHUB_REPOSITORY:-}" == "nanocurrency/nano-node" ]]; then
+if [[ "${GITHUB_REPOSITORY:-}" == "bananocoin/bananode" ]]; then
     DIRECTORY=$BUILD
 else
     DIRECTORY="${S3_BUILD_DIRECTORY}/${BUILD}"
