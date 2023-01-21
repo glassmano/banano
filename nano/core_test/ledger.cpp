@@ -70,7 +70,7 @@ TEST (ledger, process_modifies_sideband)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -432,7 +432,7 @@ TEST (ledger, receive_rollback)
 				.send ()
 				.previous (nano::dev::genesis->hash ())
 				.destination (nano::dev::genesis_key.pub)
-				.balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				.balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				.work (*pool.generate (nano::dev::genesis->hash ()))
 				.build ();
@@ -2213,7 +2213,7 @@ TEST (ledger, block_destination_source)
 	nano::work_pool pool{ nano::dev::network_params.network, std::numeric_limits<unsigned>::max () };
 	nano::keypair dest;
 	nano::uint128_t balance (nano::dev::constants.genesis_amount);
-	balance -= nano::Gxrb_ratio;
+	balance -= nano::MBAN_ratio;
 	nano::block_builder builder;
 	auto block1 = builder
 				  .send ()
@@ -2223,7 +2223,7 @@ TEST (ledger, block_destination_source)
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*pool.generate (nano::dev::genesis->hash ()))
 				  .build ();
-	balance -= nano::Gxrb_ratio;
+	balance -= nano::MBAN_ratio;
 	auto block2 = builder
 				  .send ()
 				  .previous (block1->hash ())
@@ -2232,7 +2232,7 @@ TEST (ledger, block_destination_source)
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*pool.generate (block1->hash ()))
 				  .build ();
-	balance += nano::Gxrb_ratio;
+	balance += nano::MBAN_ratio;
 	auto block3 = builder
 				  .receive ()
 				  .previous (block2->hash ())
@@ -2240,7 +2240,7 @@ TEST (ledger, block_destination_source)
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*pool.generate (block2->hash ()))
 				  .build ();
-	balance -= nano::Gxrb_ratio;
+	balance -= nano::MBAN_ratio;
 	auto block4 = builder
 				  .state ()
 				  .account (nano::dev::genesis->account ())
@@ -2251,7 +2251,7 @@ TEST (ledger, block_destination_source)
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*pool.generate (block3->hash ()))
 				  .build ();
-	balance -= nano::Gxrb_ratio;
+	balance -= nano::MBAN_ratio;
 	auto block5 = builder
 				  .state ()
 				  .account (nano::dev::genesis->account ())
@@ -2262,7 +2262,7 @@ TEST (ledger, block_destination_source)
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*pool.generate (block4->hash ()))
 				  .build ();
-	balance += nano::Gxrb_ratio;
+	balance += nano::MBAN_ratio;
 	auto block6 = builder
 				  .state ()
 				  .account (nano::dev::genesis->account ())
@@ -2307,7 +2307,7 @@ TEST (ledger, state_account)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2329,7 +2329,7 @@ TEST (ledger, state_send_receive)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2339,9 +2339,9 @@ TEST (ledger, state_send_receive)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.balance (transaction, send1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, send1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.balance (transaction, send1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, send1->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_TRUE (store.pending.exists (transaction, nano::pending_key (nano::dev::genesis->account (), send1->hash ())));
 	ASSERT_EQ (2, send2->sideband ().height);
 	ASSERT_TRUE (send2->sideband ().details.is_send);
@@ -2363,7 +2363,7 @@ TEST (ledger, state_send_receive)
 	ASSERT_NE (nullptr, receive2);
 	ASSERT_EQ (*receive1, *receive2);
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.balance (transaction, receive1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, receive1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, receive1->hash ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_FALSE (store.pending.exists (transaction, nano::pending_key (nano::dev::genesis->account (), send1->hash ())));
 	ASSERT_EQ (store.account.count (transaction), ledger.cache.account_count);
@@ -2385,7 +2385,7 @@ TEST (ledger, state_receive)
 				 .send ()
 				 .previous (nano::dev::genesis->hash ())
 				 .destination (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
 				 .build ();
@@ -2394,9 +2394,9 @@ TEST (ledger, state_receive)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.balance (transaction, send1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, send1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.balance (transaction, send1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, send1->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	auto receive1 = builder
 					.state ()
 					.account (nano::dev::genesis->account ())
@@ -2413,7 +2413,7 @@ TEST (ledger, state_receive)
 	ASSERT_NE (nullptr, receive2);
 	ASSERT_EQ (*receive1, *receive2);
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.balance (transaction, receive1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, receive1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, receive1->hash ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_EQ (3, receive2->sideband ().height);
 	ASSERT_FALSE (receive2->sideband ().details.is_send);
@@ -2469,7 +2469,7 @@ TEST (ledger, state_open)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2479,16 +2479,16 @@ TEST (ledger, state_open)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.balance (transaction, send1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, send1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.balance (transaction, send1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, send1->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_TRUE (store.pending.exists (transaction, nano::pending_key (destination.pub, send1->hash ())));
 	auto open1 = builder
 				 .state ()
 				 .account (destination.pub)
 				 .previous (0)
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::Gxrb_ratio)
+				 .balance (nano::MBAN_ratio)
 				 .link (send1->hash ())
 				 .sign (destination.prv, destination.pub)
 				 .work (*pool.generate (destination.pub))
@@ -2499,8 +2499,8 @@ TEST (ledger, state_open)
 	auto open2 = store.block.get (transaction, open1->hash ());
 	ASSERT_NE (nullptr, open2);
 	ASSERT_EQ (*open1, *open2);
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.balance (transaction, open1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, open1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.balance (transaction, open1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, open1->hash ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_EQ (ledger.cache.account_count, store.account.count (transaction));
 	ASSERT_EQ (1, open2->sideband ().height);
@@ -2523,7 +2523,7 @@ TEST (ledger, send_after_state_fail)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2533,7 +2533,7 @@ TEST (ledger, send_after_state_fail)
 				 .send ()
 				 .previous (send1->hash ())
 				 .destination (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - (2 * nano::Gxrb_ratio))
+				 .balance (nano::dev::constants.genesis_amount - (2 * nano::MBAN_ratio))
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send1->hash ()))
 				 .build ();
@@ -2554,7 +2554,7 @@ TEST (ledger, receive_after_state_fail)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2584,7 +2584,7 @@ TEST (ledger, change_after_state_fail)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2613,7 +2613,7 @@ TEST (ledger, state_unreceivable_fail)
 				 .send ()
 				 .previous (nano::dev::genesis->hash ())
 				 .destination (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
 				 .build ();
@@ -2622,9 +2622,9 @@ TEST (ledger, state_unreceivable_fail)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.balance (transaction, send1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, send1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.balance (transaction, send1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, send1->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	auto receive1 = builder
 					.state ()
 					.account (nano::dev::genesis->account ())
@@ -2650,7 +2650,7 @@ TEST (ledger, state_receive_bad_amount_fail)
 				 .send ()
 				 .previous (nano::dev::genesis->hash ())
 				 .destination (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
 				 .build ();
@@ -2659,15 +2659,15 @@ TEST (ledger, state_receive_bad_amount_fail)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.balance (transaction, send1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, send1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.balance (transaction, send1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, send1->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	auto receive1 = builder
 					.state ()
 					.account (nano::dev::genesis->account ())
 					.previous (send1->hash ())
 					.representative (nano::dev::genesis->account ())
-					.balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+					.balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 					.link (send1->hash ())
 					.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					.work (*pool.generate (send1->hash ()))
@@ -2688,7 +2688,7 @@ TEST (ledger, state_no_link_amount_fail)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2721,7 +2721,7 @@ TEST (ledger, state_receive_wrong_account_fail)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2731,16 +2731,16 @@ TEST (ledger, state_receive_wrong_account_fail)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.balance (transaction, send1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, send1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.balance (transaction, send1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, send1->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	nano::keypair key;
 	auto receive1 = builder
 					.state ()
 					.account (key.pub)
 					.previous (0)
 					.representative (nano::dev::genesis->account ())
-					.balance (nano::Gxrb_ratio)
+					.balance (nano::MBAN_ratio)
 					.link (send1->hash ())
 					.sign (key.prv, key.pub)
 					.work (*pool.generate (key.pub))
@@ -2762,7 +2762,7 @@ TEST (ledger, state_open_state_fork)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2773,7 +2773,7 @@ TEST (ledger, state_open_state_fork)
 				 .account (destination.pub)
 				 .previous (0)
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::Gxrb_ratio)
+				 .balance (nano::MBAN_ratio)
 				 .link (send1->hash ())
 				 .sign (destination.prv, destination.pub)
 				 .work (*pool.generate (destination.pub))
@@ -2805,7 +2805,7 @@ TEST (ledger, state_state_open_fork)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2825,7 +2825,7 @@ TEST (ledger, state_state_open_fork)
 				 .account (destination.pub)
 				 .previous (0)
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::Gxrb_ratio)
+				 .balance (nano::MBAN_ratio)
 				 .link (send1->hash ())
 				 .sign (destination.prv, destination.pub)
 				 .work (*pool.generate (destination.pub))
@@ -2849,7 +2849,7 @@ TEST (ledger, state_open_previous_fail)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2860,7 +2860,7 @@ TEST (ledger, state_open_previous_fail)
 				 .account (destination.pub)
 				 .previous (1)
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::Gxrb_ratio)
+				 .balance (nano::MBAN_ratio)
 				 .link (send1->hash ())
 				 .sign (destination.prv, destination.pub)
 				 .work (*pool.generate (1))
@@ -2882,7 +2882,7 @@ TEST (ledger, state_open_source_fail)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2915,7 +2915,7 @@ TEST (ledger, state_send_change)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (rep.pub)
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2925,8 +2925,8 @@ TEST (ledger, state_send_change)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.balance (transaction, send1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, send1->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.balance (transaction, send1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, send1->hash ()));
 	ASSERT_EQ (0, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (rep.pub));
 	ASSERT_EQ (2, send2->sideband ().height);
@@ -2948,7 +2948,7 @@ TEST (ledger, state_receive_change)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -2958,9 +2958,9 @@ TEST (ledger, state_receive_change)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.balance (transaction, send1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, send1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.balance (transaction, send1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, send1->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	nano::keypair rep;
 	auto receive1 = builder
 					.state ()
@@ -2978,7 +2978,7 @@ TEST (ledger, state_receive_change)
 	ASSERT_NE (nullptr, receive2);
 	ASSERT_EQ (*receive1, *receive2);
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.balance (transaction, receive1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, receive1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, receive1->hash ()));
 	ASSERT_EQ (0, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.weight (rep.pub));
 	ASSERT_EQ (3, receive2->sideband ().height);
@@ -3001,7 +3001,7 @@ TEST (ledger, state_open_old)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3016,8 +3016,8 @@ TEST (ledger, state_open_old)
 				 .work (*pool.generate (destination.pub))
 				 .build ();
 	ASSERT_EQ (nano::process_result::progress, ledger.process (transaction, *open1).code);
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.balance (transaction, open1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, open1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.balance (transaction, open1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, open1->hash ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.weight (nano::dev::genesis->account ()));
 }
 
@@ -3035,7 +3035,7 @@ TEST (ledger, state_receive_old)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3046,7 +3046,7 @@ TEST (ledger, state_receive_old)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - (2 * nano::Gxrb_ratio))
+				 .balance (nano::dev::constants.genesis_amount - (2 * nano::MBAN_ratio))
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send1->hash ()))
@@ -3069,8 +3069,8 @@ TEST (ledger, state_receive_old)
 					.work (*pool.generate (open1->hash ()))
 					.build ();
 	ASSERT_EQ (nano::process_result::progress, ledger.process (transaction, *receive1).code);
-	ASSERT_EQ (2 * nano::Gxrb_ratio, ledger.balance (transaction, receive1->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, receive1->hash ()));
+	ASSERT_EQ (2 * nano::MBAN_ratio, ledger.balance (transaction, receive1->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, receive1->hash ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.weight (nano::dev::genesis->account ()));
 }
 
@@ -3087,7 +3087,7 @@ TEST (ledger, state_rollback_send)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3097,12 +3097,12 @@ TEST (ledger, state_rollback_send)
 	auto send2 = store.block.get (transaction, send1->hash ());
 	ASSERT_NE (nullptr, send2);
 	ASSERT_EQ (*send1, *send2);
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.account_balance (transaction, nano::dev::genesis->account ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.account_balance (transaction, nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	nano::pending_info info;
 	ASSERT_FALSE (store.pending.get (transaction, nano::pending_key (nano::dev::genesis->account (), send1->hash ()), info));
 	ASSERT_EQ (nano::dev::genesis->account (), info.source);
-	ASSERT_EQ (nano::Gxrb_ratio, info.amount.number ());
+	ASSERT_EQ (nano::MBAN_ratio, info.amount.number ());
 	ASSERT_FALSE (ledger.rollback (transaction, send1->hash ()));
 	ASSERT_FALSE (store.block.exists (transaction, send1->hash ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, ledger.account_balance (transaction, nano::dev::genesis->account ()));
@@ -3125,7 +3125,7 @@ TEST (ledger, state_rollback_receive)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3147,10 +3147,10 @@ TEST (ledger, state_rollback_receive)
 	nano::pending_info info;
 	ASSERT_FALSE (store.pending.get (transaction, nano::pending_key (nano::dev::genesis->account (), send1->hash ()), info));
 	ASSERT_EQ (nano::dev::genesis->account (), info.source);
-	ASSERT_EQ (nano::Gxrb_ratio, info.amount.number ());
+	ASSERT_EQ (nano::MBAN_ratio, info.amount.number ());
 	ASSERT_FALSE (store.block.exists (transaction, receive1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.account_balance (transaction, nano::dev::genesis->account ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.account_balance (transaction, nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_EQ (store.account.count (transaction), ledger.cache.account_count);
 }
 
@@ -3168,7 +3168,7 @@ TEST (ledger, state_rollback_received_send)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (key.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3179,7 +3179,7 @@ TEST (ledger, state_rollback_received_send)
 					.account (key.pub)
 					.previous (0)
 					.representative (key.pub)
-					.balance (nano::Gxrb_ratio)
+					.balance (nano::MBAN_ratio)
 					.link (send1->hash ())
 					.sign (key.prv, key.pub)
 					.work (*pool.generate (key.pub))
@@ -3238,7 +3238,7 @@ TEST (ledger, state_open_rollback)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3249,7 +3249,7 @@ TEST (ledger, state_open_rollback)
 				 .account (destination.pub)
 				 .previous (0)
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::Gxrb_ratio)
+				 .balance (nano::MBAN_ratio)
 				 .link (send1->hash ())
 				 .sign (destination.prv, destination.pub)
 				 .work (*pool.generate (destination.pub))
@@ -3262,7 +3262,7 @@ TEST (ledger, state_open_rollback)
 	nano::pending_info info;
 	ASSERT_FALSE (store.pending.get (transaction, nano::pending_key (destination.pub, send1->hash ()), info));
 	ASSERT_EQ (nano::dev::genesis->account (), info.source);
-	ASSERT_EQ (nano::Gxrb_ratio, info.amount.number ());
+	ASSERT_EQ (nano::MBAN_ratio, info.amount.number ());
 	ASSERT_EQ (store.account.count (transaction), ledger.cache.account_count);
 }
 
@@ -3280,7 +3280,7 @@ TEST (ledger, state_send_change_rollback)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (rep.pub)
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3307,7 +3307,7 @@ TEST (ledger, state_receive_change_rollback)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3327,8 +3327,8 @@ TEST (ledger, state_receive_change_rollback)
 	ASSERT_EQ (nano::process_result::progress, ledger.process (transaction, *receive1).code);
 	ASSERT_FALSE (ledger.rollback (transaction, receive1->hash ()));
 	ASSERT_FALSE (store.block.exists (transaction, receive1->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.account_balance (transaction, nano::dev::genesis->account ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.account_balance (transaction, nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
 	ASSERT_EQ (0, ledger.weight (rep.pub));
 	ASSERT_EQ (store.account.count (transaction), ledger.cache.account_count);
 }
@@ -3396,7 +3396,7 @@ TEST (ledger, epoch_blocks_v1_general)
 				 .account (nano::dev::genesis->account ())
 				 .previous (epoch1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (epoch1->hash ()))
@@ -3456,7 +3456,7 @@ TEST (ledger, epoch_blocks_v1_general)
 					.account (destination.pub)
 					.previous (epoch4->hash ())
 					.representative (destination.pub)
-					.balance (nano::Gxrb_ratio)
+					.balance (nano::MBAN_ratio)
 					.link (send1->hash ())
 					.sign (destination.prv, destination.pub)
 					.work (*pool.generate (epoch4->hash ()))
@@ -3465,10 +3465,10 @@ TEST (ledger, epoch_blocks_v1_general)
 	ASSERT_EQ (nano::epoch::epoch_1, receive2->sideband ().details.epoch);
 	ASSERT_EQ (nano::epoch::epoch_1, receive2->sideband ().source_epoch);
 	ASSERT_EQ (0, ledger.balance (transaction, epoch4->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.balance (transaction, receive2->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, receive2->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.weight (destination.pub));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.balance (transaction, receive2->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, receive2->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.weight (destination.pub));
 	ASSERT_FALSE (receive2->sideband ().details.is_send);
 	ASSERT_TRUE (receive2->sideband ().details.is_receive);
 	ASSERT_FALSE (receive2->sideband ().details.is_epoch);
@@ -3555,7 +3555,7 @@ TEST (ledger, epoch_blocks_v2_general)
 				 .account (nano::dev::genesis->account ())
 				 .previous (epoch1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (epoch1->hash ()))
@@ -3622,7 +3622,7 @@ TEST (ledger, epoch_blocks_v2_general)
 					.account (destination.pub)
 					.previous (epoch6->hash ())
 					.representative (destination.pub)
-					.balance (nano::Gxrb_ratio)
+					.balance (nano::MBAN_ratio)
 					.link (send1->hash ())
 					.sign (destination.prv, destination.pub)
 					.work (*pool.generate (epoch6->hash ()))
@@ -3631,10 +3631,10 @@ TEST (ledger, epoch_blocks_v2_general)
 	ASSERT_EQ (nano::epoch::epoch_2, receive2->sideband ().details.epoch);
 	ASSERT_EQ (nano::epoch::epoch_1, receive2->sideband ().source_epoch);
 	ASSERT_EQ (0, ledger.balance (transaction, epoch6->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.balance (transaction, receive2->hash ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.amount (transaction, receive2->hash ()));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio, ledger.weight (nano::dev::genesis->account ()));
-	ASSERT_EQ (nano::Gxrb_ratio, ledger.weight (destination.pub));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.balance (transaction, receive2->hash ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.amount (transaction, receive2->hash ()));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, ledger.weight (nano::dev::genesis->account ()));
+	ASSERT_EQ (nano::MBAN_ratio, ledger.weight (destination.pub));
 }
 
 TEST (ledger, epoch_blocks_receive_upgrade)
@@ -3651,7 +3651,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -3662,7 +3662,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 				  .account (nano::dev::genesis->account ())
 				  .previous (send1->hash ())
 				  .representative (nano::dev::genesis->account ())
-				  .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				  .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				  .link (ledger.epoch_link (nano::epoch::epoch_1))
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*pool.generate (send1->hash ()))
@@ -3673,7 +3673,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 				 .account (nano::dev::genesis->account ())
 				 .previous (epoch1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 2)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 2)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (epoch1->hash ()))
@@ -3705,7 +3705,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 					.account (destination.pub)
 					.previous (open1->hash ())
 					.representative (destination.pub)
-					.balance (nano::Gxrb_ratio * 2)
+					.balance (nano::MBAN_ratio * 2)
 					.link (send2->hash ())
 					.sign (destination.prv, destination.pub)
 					.work (*pool.generate (open1->hash ()))
@@ -3735,7 +3735,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 				 .account (destination.pub)
 				 .previous (receive2->hash ())
 				 .representative (destination.pub)
-				 .balance (nano::Gxrb_ratio)
+				 .balance (nano::MBAN_ratio)
 				 .link (destination2.pub)
 				 .sign (destination.prv, destination.pub)
 				 .work (*pool.generate (receive2->hash ()))
@@ -3757,7 +3757,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 				  .account (nano::dev::genesis->account ())
 				  .previous (send2->hash ())
 				  .representative (nano::dev::genesis->account ())
-				  .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 2)
+				  .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 2)
 				  .link (ledger.epoch_link (nano::epoch::epoch_2))
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*pool.generate (send2->hash ()))
@@ -3768,7 +3768,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 				 .account (nano::dev::genesis->account ())
 				 .previous (epoch2->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 3)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 3)
 				 .link (destination3.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (epoch2->hash ()))
@@ -3789,7 +3789,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send4->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 4)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 4)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send4->hash ()))
@@ -3802,7 +3802,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 					.account (destination.pub)
 					.previous (send3->hash ())
 					.representative (destination.pub)
-					.balance (nano::Gxrb_ratio * 2)
+					.balance (nano::MBAN_ratio * 2)
 					.link (send5->hash ())
 					.sign (destination.prv, destination.pub)
 					.work (*pool.generate (send3->hash ()))
@@ -3819,7 +3819,7 @@ TEST (ledger, epoch_blocks_receive_upgrade)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send5->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 5)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 5)
 				 .link (destination4.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send5->hash ()))
@@ -4258,7 +4258,7 @@ TEST (ledger, unchecked_epoch)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (0)
@@ -4269,7 +4269,7 @@ TEST (ledger, unchecked_epoch)
 				 .account (destination.pub)
 				 .previous (0)
 				 .representative (destination.pub)
-				 .balance (nano::Gxrb_ratio)
+				 .balance (nano::MBAN_ratio)
 				 .link (send1->hash ())
 				 .sign (destination.prv, destination.pub)
 				 .work (0)
@@ -4280,7 +4280,7 @@ TEST (ledger, unchecked_epoch)
 				  .account (destination.pub)
 				  .previous (open1->hash ())
 				  .representative (destination.pub)
-				  .balance (nano::Gxrb_ratio)
+				  .balance (nano::MBAN_ratio)
 				  .link (node1.ledger.epoch_link (nano::epoch::epoch_1))
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (0)
@@ -4319,7 +4319,7 @@ TEST (ledger, unchecked_epoch_invalid)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (0)
@@ -4330,7 +4330,7 @@ TEST (ledger, unchecked_epoch_invalid)
 				 .account (destination.pub)
 				 .previous (0)
 				 .representative (destination.pub)
-				 .balance (nano::Gxrb_ratio)
+				 .balance (nano::MBAN_ratio)
 				 .link (send1->hash ())
 				 .sign (destination.prv, destination.pub)
 				 .work (0)
@@ -4342,7 +4342,7 @@ TEST (ledger, unchecked_epoch_invalid)
 				  .account (destination.pub)
 				  .previous (open1->hash ())
 				  .representative (destination.pub)
-				  .balance (nano::Gxrb_ratio)
+				  .balance (nano::MBAN_ratio)
 				  .link (node1.ledger.epoch_link (nano::epoch::epoch_1))
 				  .sign (destination.prv, destination.pub)
 				  .work (0)
@@ -4354,7 +4354,7 @@ TEST (ledger, unchecked_epoch_invalid)
 				  .account (destination.pub)
 				  .previous (open1->hash ())
 				  .representative (destination.pub)
-				  .balance (nano::Gxrb_ratio - 1)
+				  .balance (nano::MBAN_ratio - 1)
 				  .link (node1.ledger.epoch_link (nano::epoch::epoch_1))
 				  .sign (destination.prv, destination.pub)
 				  .work (0)
@@ -4403,7 +4403,7 @@ TEST (ledger, unchecked_open)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (0)
@@ -4455,7 +4455,7 @@ TEST (ledger, unchecked_receive)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (0)
@@ -4466,7 +4466,7 @@ TEST (ledger, unchecked_receive)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - 2 * nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - 2 * nano::MBAN_ratio)
 				 .link (destination.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (0)
@@ -4955,7 +4955,7 @@ TEST (ledger, pruning_action)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -4971,7 +4971,7 @@ TEST (ledger, pruning_action)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 2)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 2)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send1->hash ()))
@@ -4997,7 +4997,7 @@ TEST (ledger, pruning_action)
 					.account (nano::dev::genesis->account ())
 					.previous (send2->hash ())
 					.representative (nano::dev::genesis->account ())
-					.balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+					.balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 					.link (send1->hash ())
 					.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					.work (*pool.generate (send2->hash ()))
@@ -5043,7 +5043,7 @@ TEST (ledger, pruning_large_chain)
 					.account (nano::dev::genesis->account ())
 					.previous (last_hash)
 					.representative (nano::dev::genesis->account ())
-					.balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+					.balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 					.link (nano::dev::genesis->account ())
 					.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					.work (*pool.generate (last_hash))
@@ -5105,7 +5105,7 @@ TEST (ledger, pruning_source_rollback)
 				 .account (nano::dev::genesis->account ())
 				 .previous (epoch1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (epoch1->hash ()))
@@ -5117,7 +5117,7 @@ TEST (ledger, pruning_source_rollback)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 2)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 2)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send1->hash ()))
@@ -5142,7 +5142,7 @@ TEST (ledger, pruning_source_rollback)
 					.account (nano::dev::genesis->account ())
 					.previous (send2->hash ())
 					.representative (nano::dev::genesis->account ())
-					.balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+					.balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 					.link (send1->hash ())
 					.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					.work (*pool.generate (send2->hash ()))
@@ -5181,7 +5181,7 @@ TEST (ledger, pruning_source_rollback_legacy)
 				 .send ()
 				 .previous (nano::dev::genesis->hash ())
 				 .destination (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
 				 .build ();
@@ -5192,7 +5192,7 @@ TEST (ledger, pruning_source_rollback_legacy)
 				 .send ()
 				 .previous (send1->hash ())
 				 .destination (key1.pub)
-				 .balance (nano::dev::constants.genesis_amount - 2 * nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - 2 * nano::MBAN_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send1->hash ()))
 				 .build ();
@@ -5203,7 +5203,7 @@ TEST (ledger, pruning_source_rollback_legacy)
 				 .send ()
 				 .previous (send2->hash ())
 				 .destination (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - 3 * nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - 3 * nano::MBAN_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send2->hash ()))
 				 .build ();
@@ -5295,7 +5295,7 @@ TEST (ledger, pruning_process_error)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -5315,7 +5315,7 @@ TEST (ledger, pruning_process_error)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 2)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 2)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send1->hash ()))
@@ -5342,7 +5342,7 @@ TEST (ledger, pruning_legacy_blocks)
 				 .send ()
 				 .previous (nano::dev::genesis->hash ())
 				 .destination (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
 				 .build ();
@@ -5368,7 +5368,7 @@ TEST (ledger, pruning_legacy_blocks)
 				 .send ()
 				 .previous (change1->hash ())
 				 .destination (key1.pub)
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (change1->hash ()))
 				 .build ();
@@ -5428,7 +5428,7 @@ TEST (ledger, pruning_safe_functions)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -5440,7 +5440,7 @@ TEST (ledger, pruning_safe_functions)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 2)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 2)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send1->hash ()))
@@ -5459,7 +5459,7 @@ TEST (ledger, pruning_safe_functions)
 	ASSERT_EQ (0, ledger.balance_safe (transaction, send1->hash (), error));
 	ASSERT_TRUE (error);
 	error = false;
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 2, ledger.balance_safe (transaction, send2->hash (), error));
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 2, ledger.balance_safe (transaction, send2->hash (), error));
 	ASSERT_FALSE (error);
 	error = false;
 	ASSERT_EQ (0, ledger.amount_safe (transaction, send2->hash (), error));
@@ -5489,7 +5489,7 @@ TEST (ledger, hash_root_random)
 				 .account (nano::dev::genesis->account ())
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (nano::dev::genesis->hash ()))
@@ -5501,7 +5501,7 @@ TEST (ledger, hash_root_random)
 				 .account (nano::dev::genesis->account ())
 				 .previous (send1->hash ())
 				 .representative (nano::dev::genesis->account ())
-				 .balance (nano::dev::constants.genesis_amount - nano::Gxrb_ratio * 2)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio * 2)
 				 .link (nano::dev::genesis->account ())
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*pool.generate (send1->hash ()))
