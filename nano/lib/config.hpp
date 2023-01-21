@@ -313,19 +313,19 @@ public:
 		auto error{ false };
 		if (network_a == "live")
 		{
-			active_network = nano::networks::nano_live_network;
+			active_network = nano::networks::banano_live_network;
 		}
 		else if (network_a == "beta")
 		{
-			active_network = nano::networks::nano_beta_network;
+			active_network = nano::networks::banano_beta_network;
 		}
 		else if (network_a == "dev")
 		{
-			active_network = nano::networks::nano_dev_network;
+			active_network = nano::networks::banano_dev_network;
 		}
 		else if (network_a == "test")
 		{
-			active_network = nano::networks::nano_test_network;
+			active_network = nano::networks::banano_test_network;
 		}
 		else
 		{
@@ -343,19 +343,19 @@ public:
 
 	bool is_live_network () const
 	{
-		return current_network == nano::networks::nano_live_network;
+		return current_network == nano::networks::banano_live_network;
 	}
 	bool is_beta_network () const
 	{
-		return current_network == nano::networks::nano_beta_network;
+		return current_network == nano::networks::banano_beta_network;
 	}
 	bool is_dev_network () const
 	{
-		return current_network == nano::networks::nano_dev_network;
+		return current_network == nano::networks::banano_dev_network;
 	}
 	bool is_test_network () const
 	{
-		return current_network == nano::networks::nano_test_network;
+		return current_network == nano::networks::banano_test_network;
 	}
 
 	/** Initial value is ACTIVE_NETWORK compile flag, but can be overridden by a CLI flag */
