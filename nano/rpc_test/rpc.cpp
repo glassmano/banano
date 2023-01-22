@@ -2855,7 +2855,7 @@ TEST (rpc, ban_to_raw)
 	request1.put ("action", "ban_to_raw");
 	request1.put ("amount", "1");
 	auto response1 (wait_response (system, rpc_ctx, request1));
-	ASSERT_EQ (nano::Mxrb_ratio.convert_to<std::string> (), response1.get<std::string> ("amount"));
+	ASSERT_EQ (nano::BAN_ratio.convert_to<std::string> (), response1.get<std::string> ("amount"));
 }
 
 TEST (rpc, ban_from_raw)
@@ -2865,7 +2865,7 @@ TEST (rpc, ban_from_raw)
 	auto const rpc_ctx = add_rpc (system, node1);
 	boost::property_tree::ptree request1;
 	request1.put ("action", "mrai_from_raw");
-	request1.put ("amount", nano::Mxrb_ratio.convert_to<std::string> ());
+	request1.put ("amount", nano::BAN_ratio.convert_to<std::string> ());
 	auto response1 (wait_response (system, rpc_ctx, request1));
 	ASSERT_EQ ("1", response1.get<std::string> ("amount"));
 }
@@ -2903,7 +2903,7 @@ TEST (rpc, nano_to_raw)
 	request1.put ("action", "nano_to_raw");
 	request1.put ("amount", "1");
 	auto response1 (wait_response (system, rpc_ctx, request1));
-	ASSERT_EQ (nano::Mxrb_ratio.convert_to<std::string> (), response1.get<std::string> ("amount"));
+	ASSERT_EQ (nano::BAN_ratio.convert_to<std::string> (), response1.get<std::string> ("amount"));
 }
 
 TEST (rpc, raw_to_nano)
@@ -2913,7 +2913,7 @@ TEST (rpc, raw_to_nano)
 	auto const rpc_ctx = add_rpc (system, node1);
 	boost::property_tree::ptree request1;
 	request1.put ("action", "raw_to_nano");
-	request1.put ("amount", nano::Mxrb_ratio.convert_to<std::string> ());
+	request1.put ("amount", nano::BAN_ratio.convert_to<std::string> ());
 	auto response1 (wait_response (system, rpc_ctx, request1));
 	ASSERT_EQ ("1", response1.get<std::string> ("amount"));
 }
