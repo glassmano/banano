@@ -90,7 +90,7 @@ public:
 	bool use_memory_pools{ true };
 	static std::chrono::minutes constexpr wallet_backup_interval = std::chrono::minutes (5);
 	/** Default outbound traffic shaping is 10MB/s */
-	std::size_t bandwidth_limit{ 10 * 1024 * 1024 };
+	std::size_t bandwidth_limit{ 2 * 1024 * 1024 };
 	/** By default, allow bursts of 15MB/s (not sustainable) */
 	double bandwidth_limit_burst_ratio{ 3. };
 	/** Default boostrap outbound traffic limit is 16MB/s ~ 128Mbit/s */
