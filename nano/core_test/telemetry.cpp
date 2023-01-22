@@ -573,7 +573,7 @@ TEST (telemetry, DISABLED_remove_peer_different_genesis)
 	auto node0 (system.nodes[0]);
 	ASSERT_EQ (0, node0->network.size ());
 	// Change genesis block to something else in this test (this is the reference telemetry processing uses).
-	nano::network_params network_params{ nano::networks::nano_dev_network };
+	nano::network_params network_params{ nano::networks::banano_dev_network };
 	network_params.ledger.genesis = network_params.ledger.nano_live_genesis;
 	nano::node_config config{ network_params };
 	auto node1 (std::make_shared<nano::node> (system.io_ctx, nano::unique_path (), config, system.work));

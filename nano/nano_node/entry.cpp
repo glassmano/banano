@@ -162,7 +162,7 @@ int main (int argc, char * const * argv)
 		}
 		else if (vm.count ("compare_rep_weights"))
 		{
-			if (nano::network_constants::active_network != nano::networks::nano_dev_network)
+			if (nano::network_constants::active_network != nano::networks::banano_dev_network)
 			{
 				auto node_flags = nano::inactive_node_flag_defaults ();
 				nano::update_flags (node_flags, vm);
