@@ -2879,7 +2879,7 @@ TEST (rpc, banoshi_to_raw)
 	request1.put ("action", "banoshi_to_raw");
 	request1.put ("amount", "1");
 	auto response1 (wait_response (system, rpc_ctx, request1));
-	ASSERT_EQ (nano::kxrb_ratio.convert_to<std::string> (), response1.get<std::string> ("amount"));
+	ASSERT_EQ (nano::banoshi_ratio.convert_to<std::string> (), response1.get<std::string> ("amount"));
 }
 
 TEST (rpc, banoshi_from_raw)
@@ -2889,7 +2889,7 @@ TEST (rpc, banoshi_from_raw)
 	auto const rpc_ctx = add_rpc (system, node1);
 	boost::property_tree::ptree request1;
 	request1.put ("action", "krai_from_raw");
-	request1.put ("amount", nano::kxrb_ratio.convert_to<std::string> ());
+	request1.put ("amount", nano::banoshi_ratio.convert_to<std::string> ());
 	auto response1 (wait_response (system, rpc_ctx, request1));
 	ASSERT_EQ ("1", response1.get<std::string> ("amount"));
 }
