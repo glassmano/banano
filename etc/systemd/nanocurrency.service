@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=bananocoin
 WorkingDirectory=/var/bananocoin/Banano
-ExecStart=/usr/bin/nano_node --daemon --data_path=/var/bananocoin/Banano
+ExecStart=/usr/bin/bananode --daemon --data_path=/var/bananocoin/Banano
 Restart=on-failure
 
 [Install]

@@ -23,16 +23,16 @@ msg() {
     #echo "$@"
 }
 
-# the caller should set the env var NANO_NODE_EXE to point to the nano_node executable
-# if NANO_NODE_EXE is unset ot empty then "../../build/nano_node" is used
-NANO_NODE_EXE=${NANO_NODE_EXE:-../../build/nano_node}
+# the caller should set the env var NANO_NODE_EXE to point to the bananode executable
+# if NANO_NODE_EXE is unset ot empty then "../../build/bananode" is used
+NANO_NODE_EXE=${NANO_NODE_EXE:-../../build/bananode}
 
 mkdir -p "$DATADIR/log"
 clean_data_dir
 
-# start nano_node and store its pid so we can later send it
+# start bananode and store its pid so we can later send it
 # the SIGHUP signal and so we can terminate it
-msg start nano_node
+msg start bananode
 $NANO_NODE_EXE --daemon --data_path "$DATADIR" >/dev/null &
 pid=$!
 msg pid=$pid
@@ -47,7 +47,7 @@ bandwidth_limit = 42
 bandwidth_limit_burst_ratio = 43
 EOF
 
-# send nano_node the SIGHUP signal
+# send bananode the SIGHUP signal
 kill -HUP $pid
 
 # wait for the signal handler to kick in
@@ -60,7 +60,7 @@ bandwidth_limit = 44
 bandwidth_limit_burst_ratio = 45
 EOF
 
-# send nano_node the SIGHUP signal
+# send bananode the SIGHUP signal
 kill -HUP $pid
 
 # wait for the signal handler to kick in
