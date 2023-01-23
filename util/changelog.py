@@ -115,7 +115,7 @@ class cliArgs():
             "-m", "--mode",
             help="Mode to run changelog for [full, incremental]",
             type=str, action="store",
-            default='BananoCoin/banano',
+            default="BananoCoin/banano",
             choices=changelog_choices
         )
         parse.add_argument(
