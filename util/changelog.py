@@ -128,7 +128,7 @@ class cliArgs():
             '-r', '--repo',
             help="<org/repo> to generate logs for",
             type=str, action="store",
-            default='nanocurrency/nano-node',
+            default='BananoCoin/banano',
         )
         parse.add_argument(
             '-s', '--start',
