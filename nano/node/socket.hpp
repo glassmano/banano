@@ -12,15 +12,9 @@
 #include <memory>
 #include <vector>
 
-namespace boost
+namespace boost::asio::ip
 {
-namespace asio
-{
-	namespace ip
-	{
-		class network_v6;
-	}
-}
+class network_v6;
 }
 
 namespace nano
@@ -66,16 +60,17 @@ public:
 	virtual ~socket ();
 	void async_connect (boost::asio::ip::tcp::endpoint const &, std::function<void (boost::system::error_code const &)>);
 	void async_read (std::shared_ptr<std::vector<uint8_t>> const &, std::size_t, std::function<void (boost::system::error_code const &, std::size_t)>);
-	void async_write (nano::shared_const_buffer const &, std::function<void (boost::system::error_code const &, std::size_t)> const & = nullptr);
+	void async_write (nano::shared_const_buffer const &, std::function<void (boost::system::error_code const &, std::size_t)> = {});
 
-	void close ();
+	virtual void close ();
 	boost::asio::ip::tcp::endpoint remote_endpoint () const;
 	boost::asio::ip::tcp::endpoint local_endpoint () const;
 	/** Returns true if the socket has timed out */
 	bool has_timed_out () const;
 	/** This can be called to change the maximum idle time, e.g. based on the type of traffic detected. */
-	void timeout_set (std::chrono::seconds io_timeout_a);
-	void start_timer (std::chrono::seconds deadline_a);
+	void set_default_timeout_value (std::chrono::seconds);
+	std::chrono::seconds get_default_timeout_value () const;
+	void set_timeout (std::chrono::seconds);
 	void set_silent_connection_tolerance_time (std::chrono::seconds tolerance_time_a);
 	bool max () const
 	{
@@ -97,13 +92,21 @@ public:
 	{
 		return endpoint_type_m;
 	}
-	bool is_realtime_connection ()
+	bool is_realtime_connection () const
 	{
 		return type () == nano::socket::type_t::realtime || type () == nano::socket::type_t::realtime_response_server;
 	}
-	bool is_closed ()
+	bool is_bootstrap_connection () const
+	{
+		return type () == nano::socket::type_t::bootstrap;
+	}
+	bool is_closed () const
 	{
 		return closed;
+	}
+	bool alive () const
+	{
+		return !closed && tcp_socket.is_open ();
 	}
 
 protected:
@@ -122,21 +125,47 @@ protected:
 	/** The other end of the connection */
 	boost::asio::ip::tcp::endpoint remote;
 
-	std::atomic<uint64_t> next_deadline;
+	/** number of seconds of inactivity that causes a socket timeout
+	 *  activity is any successful connect, send or receive event
+	 */
+	std::atomic<uint64_t> timeout;
+
+	/** the timestamp (in seconds since epoch) of the last time there was successful activity on the socket
+	 *  activity is any successful connect, send or receive event
+	 */
 	std::atomic<uint64_t> last_completion_time_or_init;
+
+	/** the timestamp (in seconds since epoch) of the last time there was successful receive on the socket
+	 *  successful receive includes graceful closing of the socket by the peer (the read succeeds but returns 0 bytes)
+	 */
 	std::atomic<uint64_t> last_receive_time_or_init;
+
+	/** Flag that is set when cleanup decides to close the socket due to timeout.
+	 *  NOTE: Currently used by tcp_server::timeout() but I suspect that this and tcp_server::timeout() are not needed.
+	 */
 	std::atomic<bool> timed_out{ false };
-	std::atomic<std::chrono::seconds> io_timeout;
+
+	/** the timeout value to use when calling set_default_timeout() */
+	std::atomic<std::chrono::seconds> default_timeout;
+
+	/** used in real time server sockets, number of seconds of no receive traffic that will cause the socket to timeout */
 	std::chrono::seconds silent_connection_tolerance_time;
+
+	/** Tracks number of blocks queued for delivery to the local socket send buffers.
+	 *  Under normal circumstances, this should be zero.
+	 *  Note that this is not the number of buffers queued to the peer, it is the number of buffers
+	 *  queued up to enter the local TCP send buffer
+	 *  socket buffer queue -> TCP send queue -> (network) -> TCP receive queue of peer
+	 */
 	std::atomic<std::size_t> queue_size{ 0 };
 
 	/** Set by close() - completion handlers must check this. This is more reliable than checking
 	 error codes as the OS may have already completed the async operation. */
 	std::atomic<bool> closed{ false };
 	void close_internal ();
-	void start_timer ();
-	void stop_timer ();
-	void update_last_receive_time ();
+	void set_default_timeout ();
+	void set_last_completion ();
+	void set_last_receive_time ();
 	void checkup ();
 
 private:
@@ -146,6 +175,8 @@ private:
 public:
 	static std::size_t constexpr queue_size_max = 128;
 };
+
+std::string socket_type_to_string (socket::type_t type);
 
 using address_socket_mmap = std::multimap<boost::asio::ip::address, std::weak_ptr<socket>>;
 
@@ -171,12 +202,12 @@ public:
 	/**Start accepting new connections */
 	void start (boost::system::error_code &);
 	/** Stop accepting new connections */
-	void close ();
+	void close () override;
 	/** Register callback for new connections. The callback must return true to keep accepting new connections. */
 	void on_connection (std::function<bool (std::shared_ptr<nano::socket> const & new_connection, boost::system::error_code const &)>);
 	uint16_t listening_port ()
 	{
-		return local.port ();
+		return acceptor.local_endpoint ().port ();
 	}
 
 private:
@@ -185,7 +216,6 @@ private:
 	boost::asio::ip::tcp::endpoint local;
 	std::size_t max_inbound_connections;
 	void evict_dead_connections ();
-	bool is_temporary_error (boost::system::error_code const ec_a);
 	void on_connection_requeue_delayed (std::function<bool (std::shared_ptr<nano::socket> const & new_connection, boost::system::error_code const &)>);
 	/** Checks whether the maximum number of connections per IP was reached. If so, it returns true. */
 	bool limit_reached_for_incoming_ip_connections (std::shared_ptr<nano::socket> const & new_connection);

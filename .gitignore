@@ -30,14 +30,14 @@ rpc_test
 !rpc_test/
 qt_test
 !qt_test/
-nano_node
-!nano_node/
-nano_wallet
-!nano_wallet/
+bananode
+!bananode/
+banano_wallet
+!banano_wallet/
 slow_test
 !slow_test/
-nano_rpc
-!nano_rpc/
+banano_rpc
+!banano_rpc/
 
 # IDEs
 .idea

@@ -14,16 +14,16 @@ boost::filesystem::path nano::working_path (nano::networks network)
 		case nano::networks::invalid:
 			release_assert (false);
 			break;
-		case nano::networks::nano_dev_network:
+		case nano::networks::banano_dev_network:
 			result /= "BananoDev";
 			break;
-		case nano::networks::nano_beta_network:
+		case nano::networks::banano_beta_network:
 			result /= "BananoBeta";
 			break;
-		case nano::networks::nano_live_network:
+		case nano::networks::banano_live_network:
 			result /= "BananoData";
 			break;
-		case nano::networks::nano_test_network:
+		case nano::networks::banano_test_network:
 			result /= "BananoTest";
 			break;
 	}

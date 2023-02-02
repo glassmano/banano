@@ -10,36 +10,6 @@
 #include <fstream>
 #include <sstream>
 
-nano::error nano::stat_config::deserialize_json (nano::jsonconfig & json)
-{
-	auto sampling_l (json.get_optional_child ("sampling"));
-	if (sampling_l)
-	{
-		sampling_l->get<bool> ("enabled", sampling_enabled);
-		sampling_l->get<size_t> ("capacity", capacity);
-		sampling_l->get<size_t> ("interval", interval);
-	}
-
-	auto log_l (json.get_optional_child ("log"));
-	if (log_l)
-	{
-		log_l->get<bool> ("headers", log_headers);
-		log_l->get<size_t> ("interval_counters", log_interval_counters);
-		log_l->get<size_t> ("interval_samples", log_interval_samples);
-		log_l->get<size_t> ("rotation_count", log_rotation_count);
-		log_l->get<std::string> ("filename_counters", log_counters_filename);
-		log_l->get<std::string> ("filename_samples", log_samples_filename);
-
-		// Don't allow specifying the same file name for counter and samples logs
-		if (log_counters_filename == log_samples_filename)
-		{
-			json.get_error ().set ("The statistics counter and samples config values must be different");
-		}
-	}
-
-	return json.get_error ();
-}
-
 nano::error nano::stat_config::deserialize_toml (nano::tomlconfig & toml)
 {
 	auto sampling_l (toml.get_optional_child ("sampling"));
@@ -451,7 +421,7 @@ void nano::stat::update (uint32_t key_a, uint64_t value)
 				entry->samples.push_back (entry->sample_current);
 				entry->sample_current.set_value (0);
 
-				if (!entry->sample_observers.observers.empty ())
+				if (!entry->sample_observers.empty ())
 				{
 					auto snapshot (entry->samples);
 					entry->sample_observers.notify (snapshot);
@@ -492,6 +462,11 @@ void nano::stat::clear ()
 std::string nano::stat::type_to_string (uint32_t key)
 {
 	auto type = static_cast<stat::type> (key >> 16 & 0x000000ff);
+	return type_to_string (type);
+}
+
+std::string nano::stat::type_to_string (stat::type type)
+{
 	std::string res;
 	switch (type)
 	{
@@ -503,6 +478,9 @@ std::string nano::stat::type_to_string (uint32_t key)
 			break;
 		case nano::stat::type::bootstrap:
 			res = "bootstrap";
+			break;
+		case nano::stat::type::tcp_server:
+			res = "tcp_server";
 			break;
 		case nano::stat::type::error:
 			res = "error";
@@ -564,18 +542,44 @@ std::string nano::stat::type_to_string (uint32_t key)
 		case nano::stat::type::vote_generator:
 			res = "vote_generator";
 			break;
+		case nano::stat::type::vote_cache:
+			res = "vote_cache";
+			break;
+		case nano::stat::type::hinting:
+			res = "hinting";
+			break;
+		case nano::stat::type::blockprocessor:
+			res = "blockprocessor";
+			break;
+		case nano::stat::type::bootstrap_server:
+			res = "bootstrap_server";
+			break;
+		case nano::stat::type::active:
+			res = "active";
+			break;
 	}
 	return res;
 }
 
-std::string nano::stat::detail_to_string (uint32_t key)
+std::string nano::stat::detail_to_string (stat::detail detail)
 {
-	auto detail = static_cast<stat::detail> (key >> 8 & 0x000000ff);
 	std::string res;
 	switch (detail)
 	{
 		case nano::stat::detail::all:
 			res = "all";
+			break;
+		case nano::stat::detail::loop:
+			res = "loop";
+			break;
+		case nano::stat::detail::queue:
+			res = "queue";
+			break;
+		case nano::stat::detail::overfill:
+			res = "overfill";
+			break;
+		case nano::stat::detail::batch:
+			res = "batch";
 			break;
 		case nano::stat::detail::bad_sender:
 			res = "bad_sender";
@@ -643,6 +647,36 @@ std::string nano::stat::detail_to_string (uint32_t key)
 		case nano::stat::detail::gap_source:
 			res = "gap_source";
 			break;
+		case nano::stat::detail::rollback_failed:
+			res = "rollback_failed";
+			break;
+		case nano::stat::detail::progress:
+			res = "progress";
+			break;
+		case nano::stat::detail::bad_signature:
+			res = "bad_signature";
+			break;
+		case nano::stat::detail::negative_spend:
+			res = "negative_spend";
+			break;
+		case nano::stat::detail::unreceivable:
+			res = "unreceivable";
+			break;
+		case nano::stat::detail::gap_epoch_open_pending:
+			res = "gap_epoch_open_pending";
+			break;
+		case nano::stat::detail::opened_burn_account:
+			res = "opened_burn_account";
+			break;
+		case nano::stat::detail::balance_mismatch:
+			res = "balance_mismatch";
+			break;
+		case nano::stat::detail::representative_mismatch:
+			res = "representative_mismatch";
+			break;
+		case nano::stat::detail::block_position:
+			res = "block_position";
+			break;
 		case nano::stat::detail::frontier_confirmation_failed:
 			res = "frontier_confirmation_failed";
 			break;
@@ -673,11 +707,17 @@ std::string nano::stat::detail_to_string (uint32_t key)
 		case nano::stat::detail::insufficient_work:
 			res = "insufficient_work";
 			break;
+		case nano::stat::detail::invalid:
+			res = "invalid";
+			break;
 		case nano::stat::detail::invocations:
 			res = "invocations";
 			break;
 		case nano::stat::detail::keepalive:
 			res = "keepalive";
+			break;
+		case nano::stat::detail::not_a_type:
+			res = "not_a_type";
 			break;
 		case nano::stat::detail::open:
 			res = "open";
@@ -699,6 +739,12 @@ std::string nano::stat::detail_to_string (uint32_t key)
 			break;
 		case nano::stat::detail::telemetry_ack:
 			res = "telemetry_ack";
+			break;
+		case nano::stat::detail::asc_pull_req:
+			res = "asc_pull_req";
+			break;
+		case nano::stat::detail::asc_pull_ack:
+			res = "asc_pull_ack";
 			break;
 		case nano::stat::detail::state_block:
 			res = "state_block";
@@ -724,6 +770,9 @@ std::string nano::stat::detail_to_string (uint32_t key)
 		case nano::stat::detail::vote_new:
 			res = "vote_new";
 			break;
+		case nano::stat::detail::vote_processed:
+			res = "vote_processed";
+			break;
 		case nano::stat::detail::vote_cached:
 			res = "vote_cached";
 			break;
@@ -735,6 +784,9 @@ std::string nano::stat::detail_to_string (uint32_t key)
 			break;
 		case nano::stat::detail::election_start:
 			res = "election_start";
+			break;
+		case nano::stat::detail::election_confirmed_all:
+			res = "election_confirmed_all";
 			break;
 		case nano::stat::detail::election_block_conflict:
 			res = "election_block_conflict";
@@ -753,6 +805,32 @@ std::string nano::stat::detail_to_string (uint32_t key)
 			break;
 		case nano::stat::detail::election_restart:
 			res = "election_restart";
+			break;
+		case nano::stat::detail::election_confirmed:
+			res = "election_confirmed";
+			break;
+		case nano::stat::detail::election_not_confirmed:
+			res = "election_not_confirmed";
+		case nano::stat::detail::election_hinted_overflow:
+			res = "election_hinted_overflow";
+			break;
+		case nano::stat::detail::election_hinted_started:
+			res = "election_hinted_started";
+			break;
+		case nano::stat::detail::election_hinted_confirmed:
+			res = "election_hinted_confirmed";
+			break;
+		case nano::stat::detail::election_hinted_drop:
+			res = "election_hinted_drop";
+			break;
+		case nano::stat::detail::generate_vote:
+			res = "generate_vote";
+			break;
+		case nano::stat::detail::generate_vote_normal:
+			res = "generate_vote_normal";
+			break;
+		case nano::stat::detail::generate_vote_final:
+			res = "generate_vote_final";
 			break;
 		case nano::stat::detail::blocking:
 			res = "blocking";
@@ -787,6 +865,15 @@ std::string nano::stat::detail_to_string (uint32_t key)
 		case nano::stat::detail::tcp_io_timeout_drop:
 			res = "tcp_io_timeout_drop";
 			break;
+		case nano::stat::detail::tcp_connect_error:
+			res = "tcp_connect_error";
+			break;
+		case nano::stat::detail::tcp_read_error:
+			res = "tcp_read_error";
+			break;
+		case nano::stat::detail::tcp_write_error:
+			res = "tcp_write_error";
+			break;
 		case nano::stat::detail::unreachable_host:
 			res = "unreachable_host";
 			break;
@@ -816,6 +903,24 @@ std::string nano::stat::detail_to_string (uint32_t key)
 			break;
 		case nano::stat::detail::invalid_telemetry_ack_message:
 			res = "invalid_telemetry_ack_message";
+			break;
+		case nano::stat::detail::invalid_bulk_pull_message:
+			res = "invalid_bulk_pull_message";
+			break;
+		case nano::stat::detail::invalid_bulk_pull_account_message:
+			res = "invalid_bulk_pull_account_message";
+			break;
+		case nano::stat::detail::invalid_frontier_req_message:
+			res = "invalid_frontier_req_message";
+			break;
+		case nano::stat::detail::invalid_asc_pull_req_message:
+			res = "invalid_asc_pull_req_message";
+			break;
+		case nano::stat::detail::invalid_asc_pull_ack_message:
+			res = "invalid_asc_pull_ack_message";
+			break;
+		case nano::stat::detail::message_too_big:
+			res = "message_too_big";
 			break;
 		case nano::stat::detail::outdated_version:
 			res = "outdated_version";
@@ -904,13 +1009,60 @@ std::string nano::stat::detail_to_string (uint32_t key)
 		case nano::stat::detail::invalid_network:
 			res = "invalid_network";
 			break;
+		case nano::stat::detail::hinted:
+			res = "hinted";
+			break;
+		case nano::stat::detail::insert_failed:
+			res = "insert_failed";
+			break;
+		case nano::stat::detail::missing_block:
+			res = "missing_block";
+			break;
+		case nano::stat::detail::response:
+			res = "response";
+			break;
+		case nano::stat::detail::write_drop:
+			res = "write_drop";
+			break;
+		case nano::stat::detail::write_error:
+			res = "write_error";
+			break;
+		case nano::stat::detail::blocks:
+			res = "blocks";
+			break;
+		case nano::stat::detail::drop:
+			res = "drop";
+			break;
+		case nano::stat::detail::bad_count:
+			res = "bad_count";
+			break;
+		case nano::stat::detail::response_blocks:
+			res = "response_blocks";
+			break;
+		case nano::stat::detail::response_account_info:
+			res = "response_account_info";
+			break;
+		case nano::stat::detail::channel_full:
+			res = "channel_full";
+			break;
 	}
 	return res;
+}
+
+std::string nano::stat::detail_to_string (uint32_t key)
+{
+	auto detail = static_cast<stat::detail> (key >> 8 & 0x000000ff);
+	return detail_to_string (detail);
 }
 
 std::string nano::stat::dir_to_string (uint32_t key)
 {
 	auto dir = static_cast<stat::dir> (key & 0x000000ff);
+	return dir_to_string (dir);
+}
+
+std::string nano::stat::dir_to_string (dir dir)
+{
 	std::string res;
 	switch (dir)
 	{

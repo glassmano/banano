@@ -2,9 +2,9 @@
 
 build_dir=${1-${PWD}}
 if [[ ${TEST_USE_ROCKSDB-0} == 1 ]]; then
-    TIMEOUT_DEFAULT=1440
+    TIMEOUT_DEFAULT=1800
 else
-    TIMEOUT_DEFAULT=720
+    TIMEOUT_DEFAULT=900
 fi
 
 BUSYBOX_BASH=${BUSYBOX_BASH-0}
@@ -56,7 +56,7 @@ run_tests()
     xvfb_run_ ./qt_test
     qt_test_res=${?}
 
-    (cd ../systest && export NANO_NODE_EXE=../build/nano_node && ${TIMEOUT_CMD} ${TIMEOUT_TIME_ARG} 300 ./RUNALL)
+    (cd ../systest && export NANO_NODE_EXE=../build/bananode && ${TIMEOUT_CMD} ${TIMEOUT_TIME_ARG} 300 ./RUNALL)
     sys_test_res=${?}
 
     echo "Core Test return code: ${core_test_res}"

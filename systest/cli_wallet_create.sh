@@ -6,9 +6,9 @@ DATADIR=data.systest
 
 SEED=CEEDCEEDCEEDCEEDCEEDCEEDCEEDCEEDCEEDCEEDCEEDCEEDCEEDCEEDCEEDCEED
 
-# the caller should set the env var NANO_NODE_EXE to point to the nano_node executable
-# if NANO_NODE_EXE is unser ot empty then "../../build/nano_node" is used
-NANO_NODE_EXE=${NANO_NODE_EXE:-../../build/nano_node}
+# the caller should set the env var NANO_NODE_EXE to point to the bananode executable
+# if NANO_NODE_EXE is unser ot empty then "../../build/bananode" is used
+NANO_NODE_EXE=${NANO_NODE_EXE:-../../build/bananode}
 
 clean_data_dir() {
     rm -f  $DATADIR/log/log_*.log
