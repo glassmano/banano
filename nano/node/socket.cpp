@@ -228,6 +228,7 @@ void nano::socket::checkup ()
 				this_l->endpoint_type () == endpoint_type_t::server ? nano::stat::dir::in : nano::stat::dir::out);
 				condition_to_disconnect = true;
 			}
+
 			if (condition_to_disconnect)
 			{
 				if (this_l->node.config.logging.network_timeout_logging ())
@@ -457,33 +458,6 @@ void nano::server_socket::on_connection (std::function<bool (std::shared_ptr<nan
 				this_l->node.logger.try_log (log_message);
 				this_l->node.stats.inc (nano::stat::type::tcp, nano::stat::detail::tcp_max_per_subnetwork, nano::stat::dir::in);
 				this_l->on_connection_requeue_delayed (std::move (cbk));
-				return;
-			}
-
-			if (this_l->limit_reached_for_incoming_ip_connections (new_connection))
-			{
-				auto const remote_ip_address = new_connection->remote_endpoint ().address ();
-				auto const log_message = boost::str (
-				boost::format ("Network: max connections per IP (max_peers_per_ip) was reached for %1%, unable to open new connection")
-				% remote_ip_address.to_string ());
-				this_l->node.logger.try_log (log_message);
-				this_l->node.stats.inc (nano::stat::type::tcp, nano::stat::detail::tcp_max_per_ip, nano::stat::dir::in);
-				this_l->on_connection_requeue_delayed (callback_a);
-				return;
-			}
-
-			if (this_l->limit_reached_for_incoming_subnetwork_connections (new_connection))
-			{
-				auto const remote_ip_address = new_connection->remote_endpoint ().address ();
-				debug_assert (remote_ip_address.is_v6 ());
-				auto const remote_subnet = socket_functions::get_ipv6_subnet_address (remote_ip_address.to_v6 (), this_l->node.network_params.network.max_peers_per_subnetwork);
-				auto const log_message = boost::str (
-				boost::format ("Network: max connections per subnetwork (max_peers_per_subnetwork) was reached for subnetwork %1% (remote IP: %2%), unable to open new connection")
-				% remote_subnet.canonical ().to_string ()
-				% remote_ip_address.to_string ());
-				this_l->node.logger.try_log (log_message);
-				this_l->node.stats.inc (nano::stat::type::tcp, nano::stat::detail::tcp_max_per_subnetwork, nano::stat::dir::in);
-				this_l->on_connection_requeue_delayed (callback_a);
 				return;
 			}
 

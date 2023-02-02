@@ -16,17 +16,6 @@
 #include <nano/node/rocksdb/unchecked_store.hpp>
 #include <nano/node/rocksdb/version_store.hpp>
 #include <nano/secure/common.hpp>
-#include <nano/secure/store/account_store_partial.hpp>
-#include <nano/secure/store/confirmation_height_store_partial.hpp>
-#include <nano/secure/store/final_vote_store_partial.hpp>
-#include <nano/secure/store/frontier_store_partial.hpp>
-#include <nano/secure/store/online_weight_partial.hpp>
-#include <nano/secure/store/peer_store_partial.hpp>
-#include <nano/secure/store/pending_store_partial.hpp>
-#include <nano/secure/store/pruned_store_partial.hpp>
-#include <nano/secure/store/unchecked_store_partial.hpp>
-#include <nano/secure/store/version_store_partial.hpp>
-#include <nano/secure/store_partial.hpp>
 
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>

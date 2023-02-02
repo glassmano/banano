@@ -122,6 +122,7 @@ class network final
 public:
 	network (nano::node &, uint16_t);
 	~network ();
+
 	nano::networks id;
 	void start ();
 	void stop ();

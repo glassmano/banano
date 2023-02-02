@@ -162,8 +162,8 @@ public:
 	std::array<uint8_t, 16> const & address_bytes () const;
 
 	/*
-     * @return The port in host byte order
-     */
+	 * @return The port in host byte order
+	 */
 	uint16_t port () const;
 
 private:
@@ -499,7 +499,7 @@ enum class confirmation_height_mode
 };
 
 /* Holds flags for various cacheable data. For most CLI operations caching is unnecessary
-     * (e.g getting the cemented block count) so it can be disabled for performance reasons. */
+ * (e.g getting the cemented block count) so it can be disabled for performance reasons. */
 class generate_cache
 {
 public:

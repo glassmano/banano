@@ -229,6 +229,7 @@ TEST (election, quorum_minimum_update_weight_before_quorum_checks)
 
 	node_config.peering_port = nano::test::get_available_port ();
 	auto & node2 = *system.add_node (node_config);
+
 	system.wallet (1)->insert_adhoc (key1.prv);
 	ASSERT_TIMELY (10s, node2.ledger.cache.block_count == 4);
 

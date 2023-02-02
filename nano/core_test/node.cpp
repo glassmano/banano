@@ -27,17 +27,6 @@ TEST (node, null_account)
 	ASSERT_TRUE (default_account != nullptr);
 }
 
-TEST (node, null_account)
-{
-	auto const & null_account = nano::account::null ();
-	ASSERT_TRUE (null_account == nullptr);
-	ASSERT_FALSE (null_account != nullptr);
-
-	nano::account default_account{};
-	ASSERT_FALSE (default_account == nullptr);
-	ASSERT_TRUE (default_account != nullptr);
-}
-
 TEST (node, stop)
 {
 	nano::test::system system (1);

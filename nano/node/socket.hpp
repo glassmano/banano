@@ -46,11 +46,13 @@ public:
 		realtime,
 		realtime_response_server // special type for tcp channel response server
 	};
+
 	enum class endpoint_type_t
 	{
 		server,
 		client
 	};
+
 	/**
 	 * Constructor
 	 * @param node Owning node

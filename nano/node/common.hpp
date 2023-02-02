@@ -71,6 +71,7 @@ struct endpoint_hash<4>
 		return result;
 	}
 };
+
 template <std::size_t size>
 struct ip_address_hash
 {
@@ -118,6 +119,7 @@ struct hash<::nano::tcp_endpoint>
 		return ehash (endpoint_a);
 	}
 };
+
 #ifndef BOOST_ASIO_HAS_STD_HASH
 template <>
 struct hash<boost::asio::ip::address>

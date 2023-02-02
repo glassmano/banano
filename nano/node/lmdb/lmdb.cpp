@@ -383,7 +383,7 @@ void nano::lmdb::store::upgrade_v14_to_v15 (nano::write_transaction & transactio
 
 		nano::mdb_val value{ data.size (), (void *)data.data () };
 		auto s = mdb_put (env.tx (transaction_a), state_blocks_new, nano::mdb_val (hash), value, MDB_APPEND);
-		release_assert_success (*this, s);
+		release_assert_success (s);
 
 		// Every so often output to the log to indicate progress
 		constexpr auto output_cutoff = 1000000;
@@ -570,7 +570,7 @@ void nano::lmdb::store::upgrade_v17_to_v18 (nano::write_transaction const & tran
 		}
 		nano::mdb_val value{ data.size (), (void *)data.data () };
 		auto s = mdb_cursor_put (state_i.cursor, state_i->first, value, MDB_CURRENT);
-		release_assert_success (*this, s);
+		release_assert_success (s);
 
 		// Every so often output to the log to indicate progress
 		constexpr auto output_cutoff = 1000000;
@@ -640,7 +640,7 @@ void nano::lmdb::store::upgrade_v18_to_v19 (nano::write_transaction const & tran
 
 			nano::mdb_val value{ data.size (), (void *)data.data () };
 			auto s = mdb_put (env.tx (transaction_a), temp_legacy_open_receive_change_blocks, nano::mdb_val (legacy_block.first), value, MDB_APPEND);
-			release_assert_success (*this, s);
+			release_assert_success (s);
 		}
 	}
 
@@ -664,7 +664,7 @@ void nano::lmdb::store::upgrade_v18_to_v19 (nano::write_transaction const & tran
 
 			nano::mdb_val value{ data.size (), (void *)data.data () };
 			auto s = mdb_put (env.tx (transaction_a), temp_legacy_send_blocks, nano::mdb_val (i->first), value, MDB_APPEND);
-			release_assert_success (*this, s);
+			release_assert_success (s);
 		}
 	}
 
@@ -682,7 +682,7 @@ void nano::lmdb::store::upgrade_v18_to_v19 (nano::write_transaction const & tran
 		for (; i != n; ++i)
 		{
 			auto s = mdb_put (env.tx (transaction_a), temp_legacy_send_open_receive_change_blocks, nano::mdb_val (i->first), nano::mdb_val (i->second), MDB_APPEND);
-			release_assert_success (*this, s);
+			release_assert_success (s);
 		}
 
 		// Delete tables
@@ -729,7 +729,7 @@ void nano::lmdb::store::upgrade_v18_to_v19 (nano::write_transaction const & tran
 
 			nano::mdb_val value{ data.size (), (void *)data.data () };
 			auto s = mdb_put (env.tx (transaction_a), temp_state_blocks, nano::mdb_val (i->first), value, MDB_APPEND);
-			release_assert_success (*this, s);
+			release_assert_success (s);
 		}
 	}
 
@@ -852,7 +852,7 @@ uint64_t nano::lmdb::store::count (nano::transaction const & transaction_a, MDB_
 {
 	MDB_stat stats;
 	auto status (mdb_stat (env.tx (transaction_a), db_a, &stats));
-	release_assert_success (*this, status);
+	release_assert_success (status);
 	return (stats.ms_entries);
 }
 
@@ -925,7 +925,7 @@ void nano::lmdb::store::rebuild_db (nano::write_transaction const & transaction_
 		for (auto i (nano::store_iterator<nano::uint256_union, nano::mdb_val> (std::make_unique<nano::mdb_iterator<nano::uint256_union, nano::mdb_val>> (transaction_a, table))), n (nano::store_iterator<nano::uint256_union, nano::mdb_val> (nullptr)); i != n; ++i)
 		{
 			auto s = mdb_put (env.tx (transaction_a), temp, nano::mdb_val (i->first), i->second, MDB_APPEND);
-			release_assert_success (*this, s);
+			release_assert_success (s);
 		}
 		release_assert (count (transaction_a, table) == count (transaction_a, temp));
 		// Clear existing table
@@ -934,7 +934,7 @@ void nano::lmdb::store::rebuild_db (nano::write_transaction const & transaction_
 		for (auto i (nano::store_iterator<nano::uint256_union, nano::mdb_val> (std::make_unique<nano::mdb_iterator<nano::uint256_union, nano::mdb_val>> (transaction_a, temp))), n (nano::store_iterator<nano::uint256_union, nano::mdb_val> (nullptr)); i != n; ++i)
 		{
 			auto s = mdb_put (env.tx (transaction_a), table, nano::mdb_val (i->first), i->second, MDB_APPEND);
-			release_assert_success (*this, s);
+			release_assert_success (s);
 		}
 		release_assert (count (transaction_a, table) == count (transaction_a, temp));
 		// Remove temporary table
@@ -948,7 +948,7 @@ void nano::lmdb::store::rebuild_db (nano::write_transaction const & transaction_
 		for (auto i (nano::store_iterator<nano::pending_key, nano::pending_info> (std::make_unique<nano::mdb_iterator<nano::pending_key, nano::pending_info>> (transaction_a, pending_store.pending_handle))), n (nano::store_iterator<nano::pending_key, nano::pending_info> (nullptr)); i != n; ++i)
 		{
 			auto s = mdb_put (env.tx (transaction_a), temp, nano::mdb_val (i->first), nano::mdb_val (i->second), MDB_APPEND);
-			release_assert_success (*this, s);
+			release_assert_success (s);
 		}
 		release_assert (count (transaction_a, pending_store.pending_handle) == count (transaction_a, temp));
 		mdb_drop (env.tx (transaction_a), pending_store.pending_handle, 0);

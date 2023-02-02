@@ -366,6 +366,7 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		toml.get<bool> ("use_memory_pools", use_memory_pools);
 		toml.get<std::size_t> ("confirmation_history_size", confirmation_history_size);
 		toml.get<std::size_t> ("active_elections_size", active_elections_size);
+
 		toml.get<std::size_t> ("bandwidth_limit", bandwidth_limit);
 		toml.get<double> ("bandwidth_limit_burst_ratio", bandwidth_limit_burst_ratio);
 
@@ -381,16 +382,6 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		toml.get<double> ("max_work_generate_multiplier", max_work_generate_multiplier);
 
 		toml.get<uint32_t> ("max_queued_requests", max_queued_requests);
-
-		auto rep_crawler_weight_minimum_l (rep_crawler_weight_minimum.to_string_dec ());
-		if (toml.has_key ("rep_crawler_weight_minimum"))
-		{
-			rep_crawler_weight_minimum_l = toml.get<std::string> ("rep_crawler_weight_minimum");
-		}
-		if (rep_crawler_weight_minimum.decode_dec (rep_crawler_weight_minimum_l))
-		{
-			toml.get_error ().set ("rep_crawler_weight_minimum contains an invalid decimal amount");
-		}
 
 		auto rep_crawler_weight_minimum_l (rep_crawler_weight_minimum.to_string_dec ());
 		if (toml.has_key ("rep_crawler_weight_minimum"))
