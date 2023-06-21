@@ -9,6 +9,8 @@
 #include <optional>
 #include <string>
 
+using namespace std::chrono_literals;
+
 namespace boost
 {
 namespace filesystem
@@ -196,7 +198,7 @@ public:
 	network_constants (nano::work_thresholds & work_, nano::networks network_a) :
 		current_network (network_a),
 		work (work_),
-		principal_weight_factor (2000), // 0.2% A representative is classified as principal based on its weight and this factor
+		principal_weight_factor (1000), // 0.1% A representative is classified as principal based on its weight and this factor
 		default_node_port (44000),
 		default_rpc_port (45000),
 		default_ipc_port (46000),
@@ -245,6 +247,11 @@ public:
 			max_peers_per_subnetwork = max_peers_per_ip * 4;
 			peer_dump_interval = std::chrono::seconds (1);
 			vote_broadcast_interval = 500;
+			telemetry_request_cooldown = 500ms;
+			telemetry_cache_cutoff = 2000ms;
+			telemetry_request_interval = 500ms;
+			telemetry_broadcast_interval = 500ms;
+			optimistic_activation_delay = 2s;
 		}
 	}
 
@@ -286,6 +293,18 @@ public:
 	std::chrono::seconds peer_dump_interval;
 	/** Time to wait before vote rebroadcasts for active elections (milliseconds) */
 	uint64_t vote_broadcast_interval;
+
+	/** We do not reply to telemetry requests made within cooldown period */
+	std::chrono::milliseconds telemetry_request_cooldown{ 1000 * 15 };
+	/** How often to request telemetry from peers */
+	std::chrono::milliseconds telemetry_request_interval{ 1000 * 60 };
+	/** How often to broadcast telemetry to peers */
+	std::chrono::milliseconds telemetry_broadcast_interval{ 1000 * 60 };
+	/** Telemetry data older than this value is considered stale */
+	std::chrono::milliseconds telemetry_cache_cutoff{ 1000 * 130 }; // 2 * `telemetry_broadcast_interval` + some margin
+
+	/** How much to delay activation of optimistic elections to avoid interfering with election scheduler */
+	std::chrono::seconds optimistic_activation_delay{ 30 };
 
 	/** Returns the network this object contains values for */
 	nano::networks network () const
@@ -364,6 +383,8 @@ public:
 	uint8_t const protocol_version = 0x13;
 	/** Minimum accepted protocol version */
 	uint8_t const protocol_version_min = 0x12;
+	/** Minimum accepted protocol version used when bootstrapping */
+	uint8_t const bootstrap_protocol_version_min = 0x13;
 };
 
 std::string get_node_toml_config_path (boost::filesystem::path const & data_path);

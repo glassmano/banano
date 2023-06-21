@@ -99,6 +99,25 @@ TEST (rate, unlimited)
 	ASSERT_EQ (bucket.largest_burst (), static_cast<size_t> (1e9));
 }
 
+TEST (rate, busy_spin)
+{
+	// Bucket should refill at a rate of 1 token per second
+	nano::rate::token_bucket bucket (1, 1);
+
+	// Run a very tight loop for 5 seconds + a bit of wiggle room
+	int counter = 0;
+	for (auto start = std::chrono::steady_clock::now (), now = start; now < start + std::chrono::milliseconds{ 5500 }; now = std::chrono::steady_clock::now ())
+	{
+		if (bucket.try_consume ())
+		{
+			++counter;
+		}
+	}
+
+	// Bucket starts fully refilled, therefore we see 1 additional request
+	ASSERT_EQ (counter, 6);
+}
+
 TEST (optional_ptr, basic)
 {
 	struct valtype
@@ -153,60 +172,60 @@ TEST (thread, thread_pool)
 
 TEST (thread_pool_alarm, one)
 {
-	nano::thread_pool workers (1u, nano::thread_role::name::unknown);
 	std::atomic<bool> done (false);
 	nano::mutex mutex;
 	nano::condition_variable condition;
+	nano::thread_pool workers (1u, nano::thread_role::name::unknown);
 	workers.add_timed_task (std::chrono::steady_clock::now (), [&] () {
 		{
-			nano::lock_guard<nano::mutex> lock (mutex);
+			nano::lock_guard<nano::mutex> lock{ mutex };
 			done = true;
 		}
 		condition.notify_one ();
 	});
-	nano::unique_lock<nano::mutex> unique (mutex);
+	nano::unique_lock<nano::mutex> unique{ mutex };
 	condition.wait (unique, [&] () { return !!done; });
 }
 
 TEST (thread_pool_alarm, many)
 {
-	nano::thread_pool workers (50u, nano::thread_role::name::unknown);
 	std::atomic<int> count (0);
 	nano::mutex mutex;
 	nano::condition_variable condition;
+	nano::thread_pool workers (50u, nano::thread_role::name::unknown);
 	for (auto i (0); i < 50; ++i)
 	{
 		workers.add_timed_task (std::chrono::steady_clock::now (), [&] () {
 			{
-				nano::lock_guard<nano::mutex> lock (mutex);
+				nano::lock_guard<nano::mutex> lock{ mutex };
 				count += 1;
 			}
 			condition.notify_one ();
 		});
 	}
-	nano::unique_lock<nano::mutex> unique (mutex);
+	nano::unique_lock<nano::mutex> unique{ mutex };
 	condition.wait (unique, [&] () { return count == 50; });
 }
 
 TEST (thread_pool_alarm, top_execution)
 {
-	nano::thread_pool workers (1u, nano::thread_role::name::unknown);
 	int value1 (0);
 	int value2 (0);
 	nano::mutex mutex;
 	std::promise<bool> promise;
+	nano::thread_pool workers (1u, nano::thread_role::name::unknown);
 	workers.add_timed_task (std::chrono::steady_clock::now (), [&] () {
-		nano::lock_guard<nano::mutex> lock (mutex);
+		nano::lock_guard<nano::mutex> lock{ mutex };
 		value1 = 1;
 		value2 = 1;
 	});
 	workers.add_timed_task (std::chrono::steady_clock::now () + std::chrono::milliseconds (1), [&] () {
-		nano::lock_guard<nano::mutex> lock (mutex);
+		nano::lock_guard<nano::mutex> lock{ mutex };
 		value2 = 2;
 		promise.set_value (false);
 	});
 	promise.get_future ().get ();
-	nano::lock_guard<nano::mutex> lock (mutex);
+	nano::lock_guard<nano::mutex> lock{ mutex };
 	ASSERT_EQ (1, value1);
 	ASSERT_EQ (2, value2);
 }

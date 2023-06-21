@@ -46,8 +46,22 @@ public:
 enum class election_behavior
 {
 	normal,
-	hinted
+	/**
+	 * Hinted elections:
+	 * - shorter timespan
+	 * - limited space inside AEC
+	 */
+	hinted,
+	/**
+	 * Optimistic elections:
+	 * - shorter timespan
+	 * - limited space inside AEC
+	 * - more frequent confirmation requests
+	 */
+	optimistic,
 };
+
+nano::stat::detail to_stat_detail (nano::election_behavior);
 
 struct election_extended_status final
 {
@@ -96,12 +110,19 @@ private: // State management
 
 	bool valid_change (nano::election::state_t, nano::election::state_t) const;
 	bool state_change (nano::election::state_t, nano::election::state_t);
+	bool confirmed (nano::unique_lock<nano::mutex> & lock) const;
 
 public: // State transitions
 	bool transition_time (nano::confirmation_solicitor &);
 	void transition_active ();
 
 public: // Status
+	// Returns true when the election is confirmed in memory
+	// Elections will first confirm in memory once sufficient votes have been received
+	bool status_confirmed () const;
+	// Returns true when the winning block is durably confirmed in the ledger.
+	// Later once the confirmation height processor has updated the confirmation height it will be confirmed on disk
+	// It is possible for an election to be confirmed on disk but not in memory, for instance if implicitly confirmed via confirmation height
 	bool confirmed () const;
 	bool failed () const;
 	nano::election_extended_status current_status () const;
@@ -142,6 +163,7 @@ public: // Information
 	nano::root const root;
 	nano::qualified_root const qualified_root;
 	std::vector<nano::vote_with_weight_info> votes_with_weight () const;
+	nano::election_behavior behavior () const;
 
 private:
 	nano::tally_t tally_impl () const;
@@ -153,15 +175,19 @@ private:
 	 * Broadcast vote for current election winner. Generates final vote if reached quorum or already confirmed
 	 * Requires mutex lock
 	 */
-	void broadcast_vote_impl ();
+	void broadcast_vote_impl (nano::unique_lock<nano::mutex> & lock);
 	void remove_votes (nano::block_hash const &);
 	void remove_block (nano::block_hash const &);
 	bool replace_by_weight (nano::unique_lock<nano::mutex> & lock_a, nano::block_hash const &);
 	std::chrono::milliseconds time_to_live () const;
-	/*
+	/**
 	 * Calculates minimum time delay between subsequent votes when processing non-final votes
 	 */
 	std::chrono::seconds cooldown_time (nano::uint128_t weight) const;
+	/**
+	 * Calculates time delay between broadcasting confirmation requests
+	 */
+	std::chrono::milliseconds confirm_req_time () const;
 
 private:
 	std::unordered_map<nano::block_hash, std::shared_ptr<nano::block>> last_blocks;
@@ -170,7 +196,7 @@ private:
 	mutable nano::uint128_t final_weight{ 0 };
 	mutable std::unordered_map<nano::block_hash, nano::uint128_t> last_tally;
 
-	nano::election_behavior const behavior{ nano::election_behavior::normal };
+	nano::election_behavior const behavior_m{ nano::election_behavior::normal };
 	std::chrono::steady_clock::time_point const election_start = { std::chrono::steady_clock::now () };
 
 	mutable nano::mutex mutex;

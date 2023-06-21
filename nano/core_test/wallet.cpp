@@ -180,16 +180,13 @@ TEST (wallet, spend_all_one)
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
 	nano::keypair key2;
 	ASSERT_NE (nullptr, system.wallet (0)->send_action (nano::dev::genesis_key.pub, key2.pub, std::numeric_limits<nano::uint128_t>::max ()));
-	nano::account_info info2;
-	{
-		auto transaction (node1.store.tx_begin_read ());
-		node1.store.account.get (transaction, nano::dev::genesis_key.pub, info2);
-		ASSERT_NE (latest1, info2.head);
-		auto block (node1.store.block.get (transaction, info2.head));
-		ASSERT_NE (nullptr, block);
-		ASSERT_EQ (latest1, block->previous ());
-	}
-	ASSERT_TRUE (info2.balance.is_zero ());
+	auto transaction (node1.store.tx_begin_read ());
+	auto info2 = node1.ledger.account_info (transaction, nano::dev::genesis_key.pub);
+	ASSERT_NE (latest1, info2->head);
+	auto block (node1.store.block.get (transaction, info2->head));
+	ASSERT_NE (nullptr, block);
+	ASSERT_EQ (latest1, block->previous ());
+	ASSERT_TRUE (info2->balance.is_zero ());
 	ASSERT_EQ (0, node1.balance (nano::dev::genesis_key.pub));
 }
 
@@ -217,16 +214,14 @@ TEST (wallet, spend)
 	// Sending from empty accounts should always be an error.  Accounts need to be opened with an open block, not a send block.
 	ASSERT_EQ (nullptr, system.wallet (0)->send_action (0, key2.pub, 0));
 	ASSERT_NE (nullptr, system.wallet (0)->send_action (nano::dev::genesis_key.pub, key2.pub, std::numeric_limits<nano::uint128_t>::max ()));
-	nano::account_info info2;
-	{
-		auto transaction (node1.store.tx_begin_read ());
-		node1.store.account.get (transaction, nano::dev::genesis_key.pub, info2);
-		ASSERT_NE (latest1, info2.head);
-		auto block (node1.store.block.get (transaction, info2.head));
-		ASSERT_NE (nullptr, block);
-		ASSERT_EQ (latest1, block->previous ());
-	}
-	ASSERT_TRUE (info2.balance.is_zero ());
+	auto transaction (node1.store.tx_begin_read ());
+	auto info2 = node1.ledger.account_info (transaction, nano::dev::genesis_key.pub);
+	ASSERT_TRUE (info2);
+	ASSERT_NE (latest1, info2->head);
+	auto block (node1.store.block.get (transaction, info2->head));
+	ASSERT_NE (nullptr, block);
+	ASSERT_EQ (latest1, block->previous ());
+	ASSERT_TRUE (info2->balance.is_zero ());
 	ASSERT_EQ (0, node1.balance (nano::dev::genesis_key.pub));
 }
 
@@ -258,8 +253,8 @@ TEST (wallet, spend_no_previous)
 	{
 		system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
 		auto transaction (system.nodes[0]->store.tx_begin_read ());
-		nano::account_info info1;
-		ASSERT_FALSE (system.nodes[0]->store.account.get (transaction, nano::dev::genesis_key.pub, info1));
+		auto info1 = system.nodes[0]->ledger.account_info (transaction, nano::dev::genesis_key.pub);
+		ASSERT_TRUE (info1);
 		for (auto i (0); i < 50; ++i)
 		{
 			nano::keypair key;
@@ -340,10 +335,10 @@ TEST (account, encode_zero)
 	number0.encode_account (str0);
 
 	/*
-	 * Handle different lengths for "ban_" prefixed and "nano_" prefixed accounts
+	 * Handle different lengths for "xrb_" prefixed and "nano_" prefixed accounts
 	 */
-	ASSERT_EQ ((str0.front () == 'b') ? 64 : 65, str0.size ());
-	ASSERT_EQ (64, str0.size ());
+	ASSERT_EQ ((str0.front () == 'x') ? 64 : 65, str0.size ());
+	ASSERT_EQ (65, str0.size ());
 	nano::account number1;
 	ASSERT_FALSE (number1.decode_account (str0));
 	ASSERT_EQ (number0, number1);
@@ -357,9 +352,9 @@ TEST (account, encode_all)
 	number0.encode_account (str0);
 
 	/*
-	 * Handle different lengths for "ban_" prefixed and "nano_" prefixed accounts
+	 * Handle different lengths for "xrb_" prefixed and "nano_" prefixed accounts
 	 */
-	ASSERT_EQ ((str0.front () == 'b') ? 64 : 65, str0.size ());
+	ASSERT_EQ ((str0.front () == 'x') ? 64 : 65, str0.size ());
 	nano::account number1;
 	ASSERT_FALSE (number1.decode_account (str0));
 	ASSERT_EQ (number0, number1);
@@ -696,7 +691,7 @@ TEST (wallet, work_cache_delayed)
 	ASSERT_EQ (block1->hash (), node1.latest (nano::dev::genesis_key.pub));
 	auto block2 (wallet->send_action (nano::dev::genesis_key.pub, key.pub, 100));
 	ASSERT_EQ (block2->hash (), node1.latest (nano::dev::genesis_key.pub));
-	ASSERT_EQ (block2->hash (), node1.wallets.delayed_work->operator[] (nano::dev::genesis_key.pub));
+	ASSERT_EQ (block2->hash (), node1.wallets.delayed_work->operator[] (nano::dev::genesis_key.pub).as_block_hash ());
 	auto threshold (node1.default_difficulty (nano::work_version::work_1));
 	auto again (true);
 	system.deadline_set (10s);

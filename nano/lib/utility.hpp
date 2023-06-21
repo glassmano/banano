@@ -11,6 +11,8 @@
 #include <mutex>
 #include <vector>
 
+#include <magic_enum_containers.hpp>
+
 namespace boost
 {
 namespace filesystem
@@ -57,6 +59,12 @@ void assert_internal (char const * check_expr, char const * func, char const * f
 
 namespace nano
 {
+/**
+ * Array indexable by enum values
+ */
+template <typename Index, typename Value>
+using enum_array = magic_enum::containers::array<Index, Value>;
+
 /* These containers are used to collect information about sequence containers.
  * It makes use of the composite design pattern to collect information
  * from sequence containers and sequence containers inside member variables.
@@ -127,16 +135,6 @@ bool event_log_reg_entry_exists ();
  */
 void create_load_memory_address_files ();
 
-/*
- * Dumps a stacktrace file which can be read using the --debug_output_last_backtrace_dump CLI command
- */
-void dump_crash_stacktrace ();
-
-/*
- * Generates the current stacktrace
- */
-std::string generate_stacktrace ();
-
 /**
  * Some systems, especially in virtualized environments, may have very low file descriptor limits,
  * causing the node to fail. This function attempts to query the limit and returns the value. If the
@@ -164,6 +162,26 @@ void transform_if (InputIt first, InputIt last, OutputIt dest, Pred pred, Func t
 	}
 }
 
+/**
+ * Erase elements from container when predicate returns true
+ * TODO: Use `std::erase_if` in c++20
+ */
+template <class Container, class Pred>
+void erase_if (Container & container, Pred pred)
+{
+	for (auto it = container.begin (), end = container.end (); it != end;)
+	{
+		if (pred (*it))
+		{
+			it = container.erase (it);
+		}
+		else
+		{
+			++it;
+		}
+	}
+}
+
 /** Safe narrowing cast which silences warnings and asserts on data loss in debug builds. This is optimized away. */
 template <typename TARGET_TYPE, typename SOURCE_TYPE>
 constexpr TARGET_TYPE narrow_cast (SOURCE_TYPE const & val)
@@ -175,4 +193,24 @@ constexpr TARGET_TYPE narrow_cast (SOURCE_TYPE const & val)
 
 // Issue #3748
 void sort_options_description (const boost::program_options::options_description & source, boost::program_options::options_description & target);
+
+using clock = std::chrono::steady_clock;
+
+/**
+ * Check whether time elapsed between `last` and `now` is greater than `duration`
+ */
+template <typename Duration>
+bool elapsed (nano::clock::time_point const & last, Duration duration, nano::clock::time_point const & now)
+{
+	return last + duration < now;
+}
+
+/**
+ * Check whether time elapsed since `last` is greater than `duration`
+ */
+template <typename Duration>
+bool elapsed (nano::clock::time_point const & last, Duration duration)
+{
+	return elapsed (last, duration, nano::clock::now ());
+}
 }

@@ -3,14 +3,14 @@ add_executable(banano_rpc entry.cpp)
 target_link_libraries(
   banano_rpc
   rpc
+  node
   secure
   Boost::filesystem
   Boost::log_setup
   Boost::log
   Boost::program_options
   Boost::system
-  Boost::thread
-  Boost::boost)
+  Boost::thread)
 
 target_compile_definitions(
   banano_rpc

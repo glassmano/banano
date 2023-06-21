@@ -9,7 +9,7 @@
 namespace nano
 {
 class store;
-class stat;
+class stats;
 class write_transaction;
 
 // map of vote weight per block, ordered greater first
@@ -27,11 +27,12 @@ public:
 class ledger final
 {
 public:
-	ledger (nano::store &, nano::stat &, nano::ledger_constants & constants, nano::generate_cache const & = nano::generate_cache ());
+	ledger (nano::store &, nano::stats &, nano::ledger_constants & constants, nano::generate_cache const & = nano::generate_cache ());
 	/**
 	 * Return account containing hash, expects that block hash exists in ledger
 	 */
 	nano::account account (nano::transaction const &, nano::block_hash const &) const;
+	std::optional<nano::account_info> account_info (nano::transaction const & transaction, nano::account const & account) const;
 	/**
 	 * For non-prunning nodes same as `ledger::account()`
 	 * For prunning nodes ensures that block hash exists, otherwise returns zero account
@@ -52,6 +53,7 @@ public:
 	nano::uint128_t weight (nano::account const &);
 	std::shared_ptr<nano::block> successor (nano::transaction const &, nano::qualified_root const &);
 	std::shared_ptr<nano::block> forked_block (nano::transaction const &, nano::block const &);
+	std::shared_ptr<nano::block> head_block (nano::transaction const &, nano::account const &);
 	bool block_confirmed (nano::transaction const &, nano::block_hash const &) const;
 	nano::block_hash latest (nano::transaction const &, nano::account const &);
 	nano::root latest_root (nano::transaction const &, nano::account const &);
@@ -66,7 +68,8 @@ public:
 	nano::account const & block_destination (nano::transaction const &, nano::block const &);
 	nano::block_hash block_source (nano::transaction const &, nano::block const &);
 	std::pair<nano::block_hash, nano::block_hash> hash_root_random (nano::transaction const &) const;
-	nano::process_return process (nano::write_transaction const &, nano::block &, nano::signature_verification = nano::signature_verification::unknown);
+	std::optional<nano::pending_info> pending_info (nano::transaction const & transaction, nano::pending_key const & key) const;
+	nano::process_return process (nano::write_transaction const &, nano::block &);
 	bool rollback (nano::write_transaction const &, nano::block_hash const &, std::vector<std::shared_ptr<nano::block>> &);
 	bool rollback (nano::write_transaction const &, nano::block_hash const &);
 	void update_account (nano::write_transaction const &, nano::account const &, nano::account_info const &, nano::account_info const &);
@@ -86,7 +89,7 @@ public:
 	nano::ledger_constants & constants;
 	nano::store & store;
 	nano::ledger_cache cache;
-	nano::stat & stats;
+	nano::stats & stats;
 	std::unordered_map<nano::account, nano::uint128_t> bootstrap_weights;
 	uint64_t bootstrap_weight_max_blocks{ 1 };
 	std::atomic<bool> check_bootstrap_weights;

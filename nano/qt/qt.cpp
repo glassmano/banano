@@ -858,7 +858,7 @@ void nano_qt::stats_viewer::refresh_stats ()
 				detail = "total";
 			}
 
-			if (type == "traffic_udp" || type == "traffic_tcp")
+			if (type == "traffic_tcp")
 			{
 				std::vector<std::string> const units = { " bytes", " KB", " MB", " GB", " TB", " PB" };
 				double bytes = std::stod (value);
@@ -923,7 +923,7 @@ std::string nano_qt::status::text ()
 	std::string count_string;
 	{
 		auto size (wallet.wallet_m->wallets.node.ledger.cache.block_count.load ());
-		unchecked = wallet.wallet_m->wallets.node.unchecked.count (wallet.wallet_m->wallets.node.store.tx_begin_read ());
+		unchecked = wallet.wallet_m->wallets.node.unchecked.count ();
 		cemented = wallet.wallet_m->wallets.node.ledger.cache.cemented_count.load ();
 		count_string = std::to_string (size);
 	}

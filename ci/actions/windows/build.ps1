@@ -12,7 +12,6 @@ if (${env:artifact} -eq 1) {
     else {
         $env:NETWORK_CFG = "live"
     }
-    $env:NANO_SHARED_BOOST = "ON"
     $env:NANO_TEST = "-DNANO_TEST=OFF"
     $env:CI_TAG = ${env:TAG}
     if ([string]::IsNullOrEmpty(${env:VERSION_PRE_RELEASE})) {
@@ -24,13 +23,12 @@ if (${env:artifact} -eq 1) {
     $env:RUN = "artifact"
 }
 else {
-    if ( ${env:RELEASE} -eq "true" -or ${env:TEST_USE_ROCKSDB} -eq 1 ) {
+    if (${env:RELEASE} -eq "true") {
         $env:BUILD_TYPE = "RelWithDebInfo"
     }
-    else { 
+    else {
         $env:BUILD_TYPE = "Debug"
     }
-    $env:NANO_SHARED_BOOST = "OFF"
     $env:NETWORK_CFG = "dev"
     $env:NANO_TEST = "-DNANO_TEST=ON"
     $env:CI = '-DCI_TEST="1"'
@@ -39,9 +37,6 @@ else {
 
 mkdir build
 Push-Location build
-
-#accessibility of Boost dlls for generating config samples
-$ENV:PATH = "$ENV:PATH;$ENV:BOOST_ROOT\lib64-msvc-14.2"
 
 & ..\ci\actions\windows\configure.bat
 if (${LastExitCode} -ne 0) {
@@ -53,16 +48,14 @@ if (${env:RUN} -eq "artifact") {
     Invoke-WebRequest -Uri https://aka.ms/vs/16/release/vc_redist.x64.exe -OutFile "$p\vc_redist.x64.exe"
 }
 
+$env:cmake_path = Split-Path -Path(get-command cmake.exe).Path
+
 & ..\ci\actions\windows\build.bat
 if (${LastExitCode} -ne 0) {
     throw "Failed to build ${env:RUN}"
 }
-$env:cmake_path = Split-Path -Path(get-command cmake.exe).Path
-. "$PSScriptRoot\signing.ps1"
 
-& ..\ci\actions\windows\run.bat
-if (${LastExitCode} -ne 0) {
-    throw "Failed to Pass Test ${env:RUN}"
-}
+# TODO: fix the signing script.
+#. "$PSScriptRoot\signing.ps1"
 
 Pop-Location

@@ -7,7 +7,6 @@
 #include <nano/node/node.hpp>
 
 #include <boost/format.hpp>
-#include <boost/lexical_cast.hpp>
 
 namespace
 {
@@ -31,10 +30,6 @@ std::string nano::error_cli_messages::message (int ev) const
 			return "Database write error";
 		case nano::error_cli::reading_config:
 			return "Config file read error";
-		case nano::error_cli::disable_all_network:
-			return "Flags --disable_tcp_realtime and --disable_udp cannot be used together";
-		case nano::error_cli::ambiguous_udp_options:
-			return "Flags --disable_udp and --enable_udp cannot be used together";
 		case nano::error_cli::ambiguous_pruning_voting_options:
 			return "Flag --enable_pruning and enable_voting in node config cannot be used together";
 	}
@@ -105,6 +100,7 @@ void nano::add_node_flag_options (boost::program_options::options_description & 
 		("disable_legacy_bootstrap", "Disables legacy bootstrap")
 		("disable_wallet_bootstrap", "Disables wallet lazy bootstrap")
 		("disable_ongoing_bootstrap", "Disable ongoing bootstrap")
+		("disable_ascending_bootstrap", "Disable ascending bootstrap")
 		("disable_rep_crawler", "Disable rep crawler")
 		("disable_request_loop", "Disable request loop")
 		("disable_bootstrap_listener", "Disables bootstrap processing for TCP listener (not including realtime network TCP connections)")
@@ -136,23 +132,14 @@ std::error_code nano::update_flags (nano::node_flags & flags_a, boost::program_o
 	flags_a.disable_legacy_bootstrap = (vm.count ("disable_legacy_bootstrap") > 0);
 	flags_a.disable_wallet_bootstrap = (vm.count ("disable_wallet_bootstrap") > 0);
 	flags_a.disable_ongoing_bootstrap = (vm.count ("disable_ongoing_bootstrap") > 0);
+	flags_a.disable_ascending_bootstrap = (vm.count ("disable_ascending_bootstrap") > 0);
 	flags_a.disable_rep_crawler = (vm.count ("disable_rep_crawler") > 0);
 	flags_a.disable_request_loop = (vm.count ("disable_request_loop") > 0);
 	if (!flags_a.inactive_node)
 	{
 		flags_a.disable_bootstrap_listener = (vm.count ("disable_bootstrap_listener") > 0);
-		flags_a.disable_tcp_realtime = (vm.count ("disable_tcp_realtime") > 0);
 	}
 	flags_a.disable_providing_telemetry_metrics = (vm.count ("disable_providing_telemetry_metrics") > 0);
-	if ((vm.count ("disable_udp") > 0) && (vm.count ("enable_udp") > 0))
-	{
-		ec = nano::error_cli::ambiguous_udp_options;
-	}
-	flags_a.disable_udp = (vm.count ("enable_udp") == 0);
-	if (flags_a.disable_tcp_realtime && flags_a.disable_udp)
-	{
-		ec = nano::error_cli::disable_all_network;
-	}
 	flags_a.disable_unchecked_cleanup = (vm.count ("disable_unchecked_cleanup") > 0);
 	flags_a.disable_unchecked_drop = (vm.count ("disable_unchecked_drop") > 0);
 	flags_a.disable_block_processor_unchecked_deletion = (vm.count ("disable_block_processor_unchecked_deletion") > 0);
@@ -237,7 +224,7 @@ bool copy_database (boost::filesystem::path const & data_path, boost::program_op
 		auto & store (node.node->store);
 		if (vm.count ("unchecked_clear"))
 		{
-			node.node->unchecked.clear (store.tx_begin_write ());
+			node.node->unchecked.clear ();
 		}
 		if (vm.count ("clear_send_ids"))
 		{
@@ -515,7 +502,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 		if (!node.node->init_error ())
 		{
 			auto transaction (node.node->store.tx_begin_write ());
-			node.node->unchecked.clear (transaction);
+			node.node->unchecked.clear ();
 			std::cout << "Unchecked blocks deleted" << std::endl;
 		}
 		else
@@ -688,6 +675,8 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			valid_type = true;
 			nano::network_params network_params{ nano::network_constants::active_network };
 			nano::daemon_config config{ data_path, network_params };
+			// set the peering port to the default value so that it is printed in the example toml file
+			config.node.peering_port = network_params.network.default_node_port;
 			config.serialize_toml (toml);
 		}
 		else if (type == "rpc")
@@ -1126,7 +1115,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 							{
 								bool error (true);
 								{
-									nano::lock_guard<nano::mutex> lock (node->wallets.mutex);
+									nano::lock_guard<nano::mutex> lock{ node->wallets.mutex };
 									auto transaction (node->wallets.tx_begin_write ());
 									nano::wallet wallet (error, transaction, node->wallets, wallet_id.to_string (), contents.str ());
 								}
@@ -1138,7 +1127,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 								else
 								{
 									node->wallets.reload ();
-									nano::lock_guard<nano::mutex> lock (node->wallets.mutex);
+									nano::lock_guard<nano::mutex> lock{ node->wallets.mutex };
 									release_assert (node->wallets.items.find (wallet_id) != node->wallets.items.end ());
 									std::cout << "Import completed\n";
 								}
@@ -1512,7 +1501,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			{
 				try
 				{
-					boost::filesystem::ofstream stream{ timestamps_path };
+					std::ofstream stream{ timestamps_path };
 					std::cout << "Writing to file..." << std::endl;
 					for (auto & pair : pairs)
 					{

@@ -2,16 +2,13 @@ add_executable(bananode daemon.cpp daemon.hpp entry.cpp)
 
 target_link_libraries(
   bananode
+  Boost::process
   node
   rpc
   secure
   argon2
-  Boost::boost
   ${PLATFORM_LIBS})
-
-if(NANO_STACKTRACE_BACKTRACE)
-  target_link_libraries(bananode backtrace)
-endif()
+include_directories(${CMAKE_SOURCE_DIR}/submodules)
 
 target_compile_definitions(
   bananode PRIVATE -DTAG_VERSION_STRING=${TAG_VERSION_STRING}

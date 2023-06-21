@@ -7,8 +7,10 @@
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/rocksdbconfig.hpp>
 #include <nano/lib/stats.hpp>
+#include <nano/node/bootstrap/bootstrap_config.hpp>
 #include <nano/node/ipc/ipc_config.hpp>
 #include <nano/node/logging.hpp>
+#include <nano/node/optimistic_scheduler.hpp>
 #include <nano/node/websocketconfig.hpp>
 #include <nano/secure/common.hpp>
 
@@ -36,15 +38,18 @@ class node_config
 public:
 	node_config (nano::network_params & network_params = nano::dev::network_params);
 	node_config (const std::optional<uint16_t> &, nano::logging const &, nano::network_params & network_params = nano::dev::network_params);
+
 	nano::error serialize_toml (nano::tomlconfig &) const;
 	nano::error deserialize_toml (nano::tomlconfig &);
+
 	bool upgrade_json (unsigned, nano::jsonconfig &);
 	nano::account random_representative () const;
-	nano::network_params & network_params;
+	nano::network_params network_params;
 	std::optional<uint16_t> peering_port{};
+	nano::optimistic_scheduler_config optimistic_scheduler;
 	nano::logging logging;
 	std::vector<std::pair<std::string, uint16_t>> work_peers;
-	std::vector<std::pair<std::string, uint16_t>> secondary_work_peers{ { "127.0.0.1", 8072 } }; /* Default of nano-pow-server */
+	std::vector<std::pair<std::string, uint16_t>> secondary_work_peers{ { "127.0.0.1", 8076 } }; /* Default of nano-pow-server */
 	std::vector<std::string> preconfigured_peers;
 	std::vector<nano::account> preconfigured_representatives;
 	unsigned bootstrap_fraction_numerator{ 1 };
@@ -59,6 +64,7 @@ public:
 	unsigned io_threads{ std::max (4u, nano::hardware_concurrency ()) };
 	unsigned network_threads{ std::max (4u, nano::hardware_concurrency ()) };
 	unsigned work_threads{ std::max (4u, nano::hardware_concurrency ()) };
+	unsigned background_threads{ std::max (4u, nano::hardware_concurrency ()) };
 	/* Use half available threads on the system for signature checking. The calling thread does checks as well, so these are extra worker threads */
 	unsigned signature_checker_threads{ std::max (2u, nano::hardware_concurrency () / 2) };
 	bool enable_voting{ false };
@@ -74,29 +80,36 @@ public:
 	uint16_t callback_port{ 0 };
 	std::string callback_target;
 	bool allow_local_peers{ !(network_params.network.is_live_network () || network_params.network.is_test_network ()) }; // disable by default for live network
-	nano::stat_config stat_config;
+	nano::stats_config stats_config;
 	nano::ipc::ipc_config ipc_config;
 	std::string external_address;
 	uint16_t external_port{ 0 };
-	std::chrono::milliseconds block_processor_batch_max_time{ network_params.network.is_dev_network () ? std::chrono::milliseconds (500) : std::chrono::milliseconds (5000) };
+	std::chrono::milliseconds block_processor_batch_max_time{ std::chrono::milliseconds (500) };
+	/** Time to wait for block processing result */
+	std::chrono::seconds block_process_timeout{ 15 };
 	std::chrono::seconds unchecked_cutoff_time{ std::chrono::seconds (4 * 60 * 60) }; // 4 hours
 	/** Timeout for initiated async operations */
 	std::chrono::seconds tcp_io_timeout{ (network_params.network.is_dev_network () && !is_sanitizer_build ()) ? std::chrono::seconds (5) : std::chrono::seconds (15) };
 	std::chrono::nanoseconds pow_sleep_interval{ 0 };
+	// TODO: Move related settings to `active_transactions_config` class
 	std::size_t active_elections_size{ 5000 };
-	std::size_t active_elections_hinted_limit_percentage{ 20 }; // Limit of hinted elections as percentage of active_elections_size
+	/** Limit of hinted elections as percentage of `active_elections_size` */
+	std::size_t active_elections_hinted_limit_percentage{ 20 };
+	/** Limit of optimistic elections as percentage of `active_elections_size` */
+	std::size_t active_elections_optimistic_limit_percentage{ 10 };
 	/** Default maximum incoming TCP connections, including realtime network & bootstrap */
 	unsigned tcp_incoming_connections_max{ 2048 };
 	bool use_memory_pools{ true };
 	static std::chrono::minutes constexpr wallet_backup_interval = std::chrono::minutes (5);
 	/** Default outbound traffic shaping is 10MB/s */
-	std::size_t bandwidth_limit{ 2 * 1024 * 1024 };
+	std::size_t bandwidth_limit{ 10 * 1024 * 1024 };
 	/** By default, allow bursts of 15MB/s (not sustainable) */
 	double bandwidth_limit_burst_ratio{ 3. };
-	/** Default boostrap outbound traffic limit is 16MB/s ~ 128Mbit/s */
-	std::size_t bootstrap_bandwidth_limit{ 16 * 1024 * 1024 };
+	/** Default boostrap outbound traffic limit is 5MB/s */
+	std::size_t bootstrap_bandwidth_limit{ 5 * 1024 * 1024 };
 	/** Bootstrap traffic does not need bursts */
 	double bootstrap_bandwidth_burst_ratio{ 1. };
+	nano::bootstrap_ascending_config bootstrap_ascending;
 	std::chrono::milliseconds conf_height_processor_batch_min_time{ 50 };
 	bool backup_before_upgrade{ false };
 	double max_work_generate_multiplier{ 64. };
@@ -106,6 +119,12 @@ public:
 	nano::rocksdb_config rocksdb_config;
 	nano::lmdb_config lmdb_config;
 	nano::frontiers_confirmation_mode frontiers_confirmation{ nano::frontiers_confirmation_mode::automatic };
+	/** Number of accounts per second to process when doing backlog population scan */
+	unsigned backlog_scan_batch_size{ 10 * 1000 };
+	/** Number of times per second to run backlog population batches. Number of accounts per single batch is `backlog_scan_batch_size / backlog_scan_frequency` */
+	unsigned backlog_scan_frequency{ 10 };
+
+public:
 	std::string serialize_frontiers_confirmation (nano::frontiers_confirmation_mode) const;
 	nano::frontiers_confirmation_mode deserialize_frontiers_confirmation (std::string const &);
 	/** Entry is ignored if it cannot be parsed as a valid address:port */
@@ -126,15 +145,14 @@ public:
 	bool disable_bootstrap_bulk_pull_server{ false };
 	bool disable_bootstrap_bulk_push_client{ false };
 	bool disable_ongoing_bootstrap{ false }; // For testing only
+	bool disable_ascending_bootstrap{ false };
 	bool disable_rep_crawler{ false };
 	bool disable_request_loop{ false }; // For testing only
 	bool disable_tcp_realtime{ false };
-	bool disable_udp{ true };
 	bool disable_unchecked_cleanup{ false };
 	bool disable_unchecked_drop{ true };
 	bool disable_providing_telemetry_metrics{ false };
 	bool disable_ongoing_telemetry_requests{ false };
-	bool disable_initial_telemetry_requests{ false };
 	bool disable_block_processor_unchecked_deletion{ false };
 	bool disable_block_processor_republishing{ false };
 	bool allow_bootstrap_peers_duplicates{ false };

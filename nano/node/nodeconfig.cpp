@@ -6,9 +6,9 @@
 #include <nano/node/nodeconfig.hpp>
 #include <nano/node/transport/transport.hpp>
 
-#include <crypto/cryptopp/words.h>
-
 #include <boost/format.hpp>
+
+#include <cryptopp/words.h>
 
 namespace
 {
@@ -95,6 +95,7 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 	toml.put ("io_threads", io_threads, "Number of threads dedicated to I/O operations. Defaults to the number of CPU threads, and at least 4.\ntype:uint64");
 	toml.put ("network_threads", network_threads, "Number of threads dedicated to processing network messages. Defaults to the number of CPU threads, and at least 4.\ntype:uint64");
 	toml.put ("work_threads", work_threads, "Number of threads dedicated to CPU generated work. Defaults to all available CPU threads.\ntype:uint64");
+	toml.put ("background_threads", background_threads, "Number of threads dedicated to background node work, including handling of RPC requests. Defaults to all available CPU threads.\ntype:uint64");
 	toml.put ("signature_checker_threads", signature_checker_threads, "Number of additional threads dedicated to signature verification. Defaults to number of CPU threads / 2.\ntype:uint64");
 	toml.put ("enable_voting", enable_voting, "Enable or disable voting. Enabling this option requires additional system resources, namely increased CPU, bandwidth and disk usage.\ntype:bool");
 	toml.put ("bootstrap_connections", bootstrap_connections, "Number of outbound bootstrap connections. Must be a power of 2. Defaults to 4.\nWarning: a larger amount of connections may use substantially more system memory.\ntype:uint64");
@@ -103,6 +104,7 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 	toml.put ("bootstrap_serving_threads", bootstrap_serving_threads, "Number of threads dedicated to serving bootstrap data to other peers. Defaults to half the number of CPU threads, and at least 2.\ntype:uint64");
 	toml.put ("bootstrap_frontier_request_count", bootstrap_frontier_request_count, "Number frontiers per bootstrap frontier request. Defaults to 1048576.\ntype:uint32,[1024..4294967295]");
 	toml.put ("block_processor_batch_max_time", block_processor_batch_max_time.count (), "The maximum time the block processor can continuously process blocks for.\ntype:milliseconds");
+	toml.put ("block_process_timeout", block_process_timeout.count (), "Time to wait for block processing result.\ntype:seconds");
 	toml.put ("allow_local_peers", allow_local_peers, "Enable or disable local host peering.\ntype:bool");
 	toml.put ("vote_minimum", vote_minimum.to_string_dec (), "Local representatives do not vote if the delegated weight is under this threshold. Saves on system resources.\ntype:string,amount,raw");
 	toml.put ("vote_generator_delay", vote_generator_delay.count (), "Delay before votes are sent to allow for efficient bundling of hashes in votes.\ntype:milliseconds");
@@ -129,6 +131,8 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 	toml.put ("frontiers_confirmation", serialize_frontiers_confirmation (frontiers_confirmation), "Mode controlling frontier confirmation rate.\ntype:string,{auto,always,disabled}");
 	toml.put ("max_queued_requests", max_queued_requests, "Limit for number of queued confirmation requests for one channel, after which new requests are dropped until the queue drops below this value.\ntype:uint32");
 	toml.put ("rep_crawler_weight_minimum", rep_crawler_weight_minimum.to_string_dec (), "Rep crawler minimum weight, if this is less than minimum principal weight then this is taken as the minimum weight a rep must have to be tracked. If you want to track all reps set this to 0. If you do not want this to influence anything then set it to max value. This is only useful for debugging or for people who really know what they are doing.\ntype:string,amount,raw");
+	toml.put ("backlog_scan_batch_size", backlog_scan_batch_size, "Number of accounts per second to process when doing backlog population scan. Increasing this value will help unconfirmed frontiers get into election prioritization queue faster, however it will also increase resource usage. \ntype:uint");
+	toml.put ("backlog_scan_frequency", backlog_scan_frequency, "Backlog scan divides the scan into smaller batches, number of which is controlled by this value. Higher frequency helps to utilize resources more uniformly, however it also introduces more overhead. The resulting number of accounts per single batch is `backlog_scan_batch_size / backlog_scan_frequency` \ntype:uint");
 
 	auto work_peers_l (toml.create_array ("work_peers", "A list of \"address:port\" entries to identify work peers."));
 	for (auto i (work_peers.begin ()), n (work_peers.end ()); i != n; ++i)
@@ -136,7 +140,7 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 		work_peers_l->push_back (boost::str (boost::format ("%1%:%2%") % i->first % i->second));
 	}
 
-	auto preconfigured_peers_l (toml.create_array ("preconfigured_peers", "A list of \"address\" (hostname or ipv6 notation ip address) entries to identify preconfigured peers."));
+	auto preconfigured_peers_l (toml.create_array ("preconfigured_peers", "A list of \"address\" (hostname or ipv6 notation ip address) entries to identify preconfigured peers.\nThe contents of the NANO_DEFAULT_PEER environment variable are added to preconfigured_peers."));
 	for (auto i (preconfigured_peers.begin ()), n (preconfigured_peers.end ()); i != n; ++i)
 	{
 		preconfigured_peers_l->push_back (*i);
@@ -182,7 +186,7 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 	toml.put_child ("diagnostics", diagnostics_l);
 
 	nano::tomlconfig stat_l;
-	stat_config.serialize_toml (stat_l);
+	stats_config.serialize_toml (stat_l);
 	toml.put_child ("statistics", stat_l);
 
 	nano::tomlconfig rocksdb_l;
@@ -192,6 +196,14 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 	nano::tomlconfig lmdb_l;
 	lmdb_config.serialize_toml (lmdb_l);
 	toml.put_child ("lmdb", lmdb_l);
+
+	nano::tomlconfig optimistic_l;
+	optimistic_scheduler.serialize (optimistic_l);
+	toml.put_child ("optimistic_scheduler", optimistic_l);
+
+	nano::tomlconfig bootstrap_ascending_l;
+	bootstrap_ascending.serialize (bootstrap_ascending_l);
+	toml.put_child ("bootstrap_ascending", bootstrap_ascending_l);
 
 	return toml.get_error ();
 }
@@ -234,14 +246,26 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 
 		if (toml.has_key ("statistics"))
 		{
-			auto stat_config_l (toml.get_required_child ("statistics"));
-			stat_config.deserialize_toml (stat_config_l);
+			auto stats_config_l (toml.get_required_child ("statistics"));
+			stats_config.deserialize_toml (stats_config_l);
 		}
 
 		if (toml.has_key ("rocksdb"))
 		{
 			auto rocksdb_config_l (toml.get_required_child ("rocksdb"));
 			rocksdb_config.deserialize_toml (rocksdb_config_l);
+		}
+
+		if (toml.has_key ("optimistic_scheduler"))
+		{
+			auto config_l = toml.get_required_child ("optimistic_scheduler");
+			optimistic_scheduler.deserialize (config_l);
+		}
+
+		if (toml.has_key ("bootstrap_ascending"))
+		{
+			auto config_l = toml.get_required_child ("bootstrap_ascending");
+			bootstrap_ascending.deserialize (config_l);
 		}
 
 		if (toml.has_key ("work_peers"))
@@ -318,6 +342,10 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		toml.get ("block_processor_batch_max_time", block_processor_batch_max_time_l);
 		block_processor_batch_max_time = std::chrono::milliseconds (block_processor_batch_max_time_l);
 
+		auto block_process_timeout_l = block_process_timeout.count ();
+		toml.get ("block_process_timeout", block_process_timeout_l);
+		block_process_timeout = std::chrono::seconds{ block_process_timeout_l };
+
 		auto unchecked_cutoff_time_l = static_cast<unsigned long> (unchecked_cutoff_time.count ());
 		toml.get ("unchecked_cutoff_time", unchecked_cutoff_time_l);
 		unchecked_cutoff_time = std::chrono::seconds (unchecked_cutoff_time_l);
@@ -339,6 +367,7 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		toml.get<unsigned> ("io_threads", io_threads);
 		toml.get<unsigned> ("work_threads", work_threads);
 		toml.get<unsigned> ("network_threads", network_threads);
+		toml.get<unsigned> ("background_threads", background_threads);
 		toml.get<unsigned> ("bootstrap_connections", bootstrap_connections);
 		toml.get<unsigned> ("bootstrap_connections_max", bootstrap_connections_max);
 		toml.get<unsigned> ("bootstrap_initiator_threads", bootstrap_initiator_threads);
@@ -398,6 +427,9 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 			auto frontiers_confirmation_l (toml.get<std::string> ("frontiers_confirmation"));
 			frontiers_confirmation = deserialize_frontiers_confirmation (frontiers_confirmation_l);
 		}
+
+		toml.get<unsigned> ("backlog_scan_batch_size", backlog_scan_batch_size);
+		toml.get<unsigned> ("backlog_scan_frequency", backlog_scan_frequency);
 
 		if (toml.has_key ("experimental"))
 		{

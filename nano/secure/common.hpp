@@ -8,6 +8,7 @@
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/rep_weights.hpp>
 #include <nano/lib/stats.hpp>
+#include <nano/lib/timer.hpp>
 #include <nano/lib/utility.hpp>
 
 #include <boost/iterator/transform_iterator.hpp>
@@ -15,6 +16,7 @@
 #include <boost/property_tree/ptree_fwd.hpp>
 #include <boost/variant/variant.hpp>
 
+#include <array>
 #include <unordered_map>
 
 namespace boost
@@ -102,7 +104,7 @@ class account_info final
 {
 public:
 	account_info () = default;
-	account_info (nano::block_hash const &, nano::account const &, nano::block_hash const &, nano::amount const &, uint64_t, uint64_t, epoch);
+	account_info (nano::block_hash const &, nano::account const &, nano::block_hash const &, nano::amount const &, nano::seconds_t modified, uint64_t, epoch);
 	bool deserialize (nano::stream &);
 	bool operator== (nano::account_info const &) const;
 	bool operator!= (nano::account_info const &) const;
@@ -113,7 +115,7 @@ public:
 	nano::block_hash open_block{ 0 };
 	nano::amount balance{ 0 };
 	/** Seconds since posix epoch */
-	uint64_t modified{ 0 };
+	nano::seconds_t modified{ 0 };
 	uint64_t block_count{ 0 };
 	nano::epoch epoch_m{ nano::epoch::epoch_0 };
 };
@@ -193,37 +195,21 @@ public:
 };
 
 /**
- * Tag for block signature verification result
- */
-enum class signature_verification : uint8_t
-{
-	unknown = 0,
-	invalid = 1,
-	valid = 2,
-	valid_epoch = 3 // Valid for epoch blocks
-};
-
-/**
  * Information on an unchecked block
  */
 class unchecked_info final
 {
 public:
 	unchecked_info () = default;
-	unchecked_info (std::shared_ptr<nano::block> const &, nano::account const &, nano::signature_verification = nano::signature_verification::unknown);
 	unchecked_info (std::shared_ptr<nano::block> const &);
 	void serialize (nano::stream &) const;
 	bool deserialize (nano::stream &);
-	uint64_t modified () const;
+	nano::seconds_t modified () const;
 	std::shared_ptr<nano::block> block;
-	nano::account account{};
 
 private:
 	/** Seconds since posix epoch */
 	uint64_t modified_m{ 0 };
-
-public:
-	nano::signature_verification verified{ nano::signature_verification::unknown };
 };
 
 class block_info final
@@ -270,7 +256,7 @@ public:
 	vote () = default;
 	vote (nano::vote const &);
 	vote (bool &, nano::stream &);
-	vote (nano::account const &, nano::raw_key const &, uint64_t timestamp, uint8_t duration, std::vector<nano::block_hash> const &);
+	vote (nano::account const &, nano::raw_key const &, nano::millis_t timestamp, uint8_t duration, std::vector<nano::block_hash> const &);
 	std::string hashes_string () const;
 	nano::block_hash hash () const;
 	nano::block_hash full_hash () const;
@@ -291,7 +277,7 @@ public:
 	uint8_t duration_bits () const;
 	std::chrono::milliseconds duration () const;
 	static uint64_t constexpr timestamp_mask = { 0xffff'ffff'ffff'fff0ULL };
-	static uint64_t constexpr timestamp_max = { 0xffff'ffff'ffff'fff0ULL };
+	static nano::seconds_t constexpr timestamp_max = { 0xffff'ffff'ffff'fff0ULL };
 	static uint64_t constexpr timestamp_min = { 0x0000'0000'0000'0010ULL };
 	static uint8_t constexpr duration_max = { 0x0fu };
 
@@ -361,8 +347,6 @@ class process_return final
 {
 public:
 	nano::process_result code;
-	nano::signature_verification verified;
-	nano::amount previous_balance;
 };
 enum class tally_result
 {

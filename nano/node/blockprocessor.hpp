@@ -1,19 +1,14 @@
 #pragma once
 
 #include <nano/lib/blocks.hpp>
+#include <nano/node/blocking_observer.hpp>
 #include <nano/node/state_block_signature_verification.hpp>
 #include <nano/secure/common.hpp>
 
-#include <boost/multi_index/hashed_index.hpp>
-#include <boost/multi_index/member.hpp>
-#include <boost/multi_index/ordered_index.hpp>
-#include <boost/multi_index/sequenced_index.hpp>
-#include <boost/multi_index_container.hpp>
-
 #include <chrono>
+#include <future>
 #include <memory>
 #include <thread>
-#include <unordered_set>
 
 namespace nano
 {
@@ -23,23 +18,6 @@ class transaction;
 class write_transaction;
 class write_database_queue;
 
-enum class block_origin
-{
-	local,
-	remote
-};
-
-class block_post_events final
-{
-public:
-	explicit block_post_events (std::function<nano::read_transaction ()> &&);
-	~block_post_events ();
-	std::deque<std::function<void (nano::read_transaction const &)>> events;
-
-private:
-	std::function<nano::read_transaction ()> get_transaction;
-};
-
 /**
  * Processing blocks is a potentially long IO operation.
  * This class isolates block insertion from other operations like servicing network operations
@@ -48,39 +26,43 @@ class block_processor final
 {
 public:
 	explicit block_processor (nano::node &, nano::write_database_queue &);
-	~block_processor ();
 	void stop ();
 	void flush ();
 	std::size_t size ();
 	bool full ();
 	bool half_full ();
-	void add_local (nano::unchecked_info const & info_a);
-	void add (nano::unchecked_info const &);
 	void add (std::shared_ptr<nano::block> const &);
+	std::optional<nano::process_return> add_blocking (std::shared_ptr<nano::block> const & block);
 	void force (std::shared_ptr<nano::block> const &);
-	void wait_write ();
 	bool should_log ();
 	bool have_blocks_ready ();
 	bool have_blocks ();
 	void process_blocks ();
-	nano::process_return process_one (nano::write_transaction const &, block_post_events &, nano::unchecked_info, bool const = false, nano::block_origin const = nano::block_origin::remote);
-	nano::process_return process_one (nano::write_transaction const &, block_post_events &, std::shared_ptr<nano::block> const &);
+
 	std::atomic<bool> flushing{ false };
 	// Delay required for average network propagartion before requesting confirmation
 	static std::chrono::milliseconds constexpr confirmation_request_delay{ 1500 };
-	nano::observer_set<nano::transaction const &, nano::process_return const &, nano::block const &> processed;
+
+public: // Events
+	using processed_t = std::pair<nano::process_return, std::shared_ptr<nano::block>>;
+	nano::observer_set<nano::process_return const &, std::shared_ptr<nano::block>> processed;
+
+	// The batch observer feeds the processed obsever
+	nano::observer_set<std::deque<processed_t> const &> batch_processed;
 
 private:
+	blocking_observer blocking;
+
+private:
+	nano::process_return process_one (nano::write_transaction const &, std::shared_ptr<nano::block> block, bool const = false);
 	void queue_unchecked (nano::write_transaction const &, nano::hash_or_account const &);
-	void process_batch (nano::unique_lock<nano::mutex> &);
-	void process_live (nano::transaction const &, nano::block_hash const &, std::shared_ptr<nano::block> const &, nano::process_return const &, nano::block_origin const = nano::block_origin::remote);
-	void requeue_invalid (nano::block_hash const &, nano::unchecked_info const &);
+	std::deque<processed_t> process_batch (nano::unique_lock<nano::mutex> &);
 	void process_verified_state_blocks (std::deque<nano::state_block_signature_verification::value_type> &, std::vector<int> const &, std::vector<nano::block_hash> const &, std::vector<nano::signature> const &);
+	void add_impl (std::shared_ptr<nano::block> block);
 	bool stopped{ false };
 	bool active{ false };
-	bool awaiting_write{ false };
 	std::chrono::steady_clock::time_point next_log;
-	std::deque<nano::unchecked_info> blocks;
+	std::deque<std::shared_ptr<nano::block>> blocks;
 	std::deque<std::shared_ptr<nano::block>> forced;
 	nano::condition_variable condition;
 	nano::node & node;

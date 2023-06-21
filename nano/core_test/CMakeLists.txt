@@ -4,10 +4,12 @@ add_executable(
   fakes/websocket_client.hpp
   fakes/work_peer.hpp
   active_transactions.cpp
+  backlog.cpp
   block.cpp
   block_store.cpp
   blockprocessor.cpp
   bootstrap.cpp
+  bootstrap_ascending.cpp
   bootstrap_server.cpp
   cli.cpp
   confirmation_height.cpp
@@ -17,6 +19,7 @@ add_executable(
   distributed_work.cpp
   election.cpp
   election_scheduler.cpp
+  enums.cpp
   epochs.cpp
   frontiers_confirmation.cpp
   gap_cache.cpp
@@ -26,11 +29,12 @@ add_executable(
   locks.cpp
   logger.cpp
   message.cpp
-  message_parser.cpp
+  message_deserializer.cpp
   memory_pool.cpp
   network.cpp
   network_filter.cpp
   node.cpp
+  optimistic_scheduler.cpp
   processing_queue.cpp
   processor_service.cpp
   peer_container.cpp
@@ -41,6 +45,7 @@ add_executable(
   socket.cpp
   system.cpp
   telemetry.cpp
+  throttle.cpp
   toml.cpp
   timer.cpp
   uint256_union.cpp
@@ -66,5 +71,8 @@ target_link_libraries(
   gtest
   libminiupnpc-static
   Boost::log_setup
-  Boost::log
-  Boost::boost)
+  Boost::log)
+
+include_directories(${CMAKE_SOURCE_DIR}/submodules)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/cpptoml/include)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/gtest/googletest/include)

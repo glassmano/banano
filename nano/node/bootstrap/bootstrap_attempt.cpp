@@ -1,16 +1,10 @@
-#include <nano/crypto_lib/random_pool.hpp>
 #include <nano/node/bootstrap/bootstrap.hpp>
 #include <nano/node/bootstrap/bootstrap_attempt.hpp>
 #include <nano/node/bootstrap/bootstrap_bulk_push.hpp>
-#include <nano/node/bootstrap/bootstrap_frontier.hpp>
-#include <nano/node/common.hpp>
 #include <nano/node/node.hpp>
-#include <nano/node/transport/tcp.hpp>
 #include <nano/node/websocket.hpp>
 
 #include <boost/format.hpp>
-
-#include <algorithm>
 
 constexpr unsigned nano::bootstrap_limits::requeued_pulls_limit;
 constexpr unsigned nano::bootstrap_limits::requeued_pulls_limit_dev;
@@ -26,29 +20,34 @@ nano::bootstrap_attempt::bootstrap_attempt (std::shared_ptr<nano::node> const & 
 		id = nano::hardened_constants::get ().random_128.to_string ();
 	}
 
-	node->logger.always_log (boost::str (boost::format ("Starting %1% bootstrap attempt with ID %2%") % mode_text () % id));
-	node->bootstrap_initiator.notify_listeners (true);
-	if (node->websocket_server)
+	node_a->logger.always_log (boost::str (boost::format ("Starting %1% bootstrap attempt with ID %2%") % mode_text () % id));
+	node_a->bootstrap_initiator.notify_listeners (true);
+	if (node_a->websocket.server)
 	{
 		nano::websocket::message_builder builder;
-		node->websocket_server->broadcast (builder.bootstrap_started (id, mode_text ()));
+		node_a->websocket.server->broadcast (builder.bootstrap_started (id, mode_text ()));
 	}
 }
 
 nano::bootstrap_attempt::~bootstrap_attempt ()
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	node->logger.always_log (boost::str (boost::format ("Exiting %1% bootstrap attempt with ID %2%") % mode_text () % id));
 	node->bootstrap_initiator.notify_listeners (false);
-	if (node->websocket_server)
+	if (node->websocket.server)
 	{
 		nano::websocket::message_builder builder;
-		node->websocket_server->broadcast (builder.bootstrap_exited (id, mode_text (), attempt_start, total_blocks));
+		node->websocket.server->broadcast (builder.bootstrap_exited (id, mode_text (), attempt_start, total_blocks));
 	}
 }
 
 bool nano::bootstrap_attempt::should_log ()
 {
-	nano::lock_guard<nano::mutex> guard (next_log_mutex);
+	nano::lock_guard<nano::mutex> guard{ next_log_mutex };
 	auto result (false);
 	auto now (std::chrono::steady_clock::now ());
 	if (next_log < now)
@@ -70,7 +69,7 @@ bool nano::bootstrap_attempt::still_pulling ()
 void nano::bootstrap_attempt::pull_started ()
 {
 	{
-		nano::lock_guard<nano::mutex> guard (mutex);
+		nano::lock_guard<nano::mutex> guard{ mutex };
 		++pulling;
 	}
 	condition.notify_all ();
@@ -79,7 +78,7 @@ void nano::bootstrap_attempt::pull_started ()
 void nano::bootstrap_attempt::pull_finished ()
 {
 	{
-		nano::lock_guard<nano::mutex> guard (mutex);
+		nano::lock_guard<nano::mutex> guard{ mutex };
 		--pulling;
 	}
 	condition.notify_all ();
@@ -88,11 +87,16 @@ void nano::bootstrap_attempt::pull_finished ()
 void nano::bootstrap_attempt::stop ()
 {
 	{
-		nano::lock_guard<nano::mutex> lock (mutex);
+		nano::lock_guard<nano::mutex> lock{ mutex };
 		stopped = true;
 	}
 	condition.notify_all ();
-	node->bootstrap_initiator.connections->clear_pulls (incremental_id);
+	auto node_l = node.lock ();
+	if (!node_l)
+	{
+		return;
+	}
+	node_l->bootstrap_initiator.connections->clear_pulls (incremental_id);
 }
 
 char const * nano::bootstrap_attempt::mode_text ()
@@ -105,22 +109,28 @@ char const * nano::bootstrap_attempt::mode_text ()
 			return "lazy";
 		case nano::bootstrap_mode::wallet_lazy:
 			return "wallet_lazy";
+		case nano::bootstrap_mode::ascending:
+			return "ascending";
 	}
 	return "unknown";
 }
 
 bool nano::bootstrap_attempt::process_block (std::shared_ptr<nano::block> const & block_a, nano::account const & known_account_a, uint64_t pull_blocks_processed, nano::bulk_pull::count_t max_blocks, bool block_expected, unsigned retry_limit)
 {
+	auto node_l = node.lock ();
+	if (!node_l)
+	{
+		return true;
+	}
 	bool stop_pull (false);
 	// If block already exists in the ledger, then we can avoid next part of long account chain
-	if (pull_blocks_processed % nano::bootstrap_limits::pull_count_per_check == 0 && node->ledger.block_or_pruned_exists (block_a->hash ()))
+	if (pull_blocks_processed % nano::bootstrap_limits::pull_count_per_check == 0 && node_l->ledger.block_or_pruned_exists (block_a->hash ()))
 	{
 		stop_pull = true;
 	}
 	else
 	{
-		nano::unchecked_info info (block_a, known_account_a, nano::signature_verification::unknown);
-		node->block_processor.add (info);
+		node_l->block_processor.add (block_a);
 	}
 	return stop_pull;
 }

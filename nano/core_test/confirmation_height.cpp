@@ -241,39 +241,40 @@ TEST (confirmation_height, multiple_accounts)
 						.work (*system.work.generate (open3->hash ()))
 						.build_shared ();
 		node->process_active (receive3);
-		node->block_processor.flush ();
-		node->block_confirm (receive3);
-		auto election = node->active.election (receive3->qualified_root ());
+		auto election = nano::test::start_election (system, *node, receive3->hash ());
 		ASSERT_NE (nullptr, election);
 		election->force_confirm ();
 
 		ASSERT_TIMELY (10s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 10);
 
-		nano::account_info account_info;
 		nano::confirmation_height_info confirmation_height_info;
 		auto & store = node->store;
 		auto transaction = node->store.tx_begin_read ();
 		ASSERT_TRUE (node->ledger.block_confirmed (transaction, receive3->hash ()));
-		ASSERT_FALSE (store.account.get (transaction, nano::dev::genesis_key.pub, account_info));
+		auto account_info = node->ledger.account_info (transaction, nano::dev::genesis_key.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, nano::dev::genesis_key.pub, confirmation_height_info));
 		ASSERT_EQ (4, confirmation_height_info.height);
 		ASSERT_EQ (send3->hash (), confirmation_height_info.frontier);
-		ASSERT_EQ (4, account_info.block_count);
-		ASSERT_FALSE (store.account.get (transaction, key1.pub, account_info));
+		ASSERT_EQ (4, account_info->block_count);
+		account_info = node->ledger.account_info (transaction, key1.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, key1.pub, confirmation_height_info));
 		ASSERT_EQ (2, confirmation_height_info.height);
 		ASSERT_EQ (send4->hash (), confirmation_height_info.frontier);
-		ASSERT_EQ (3, account_info.block_count);
-		ASSERT_FALSE (store.account.get (transaction, key2.pub, account_info));
+		ASSERT_EQ (3, account_info->block_count);
+		account_info = node->ledger.account_info (transaction, key2.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, key2.pub, confirmation_height_info));
 		ASSERT_EQ (3, confirmation_height_info.height);
 		ASSERT_EQ (send6->hash (), confirmation_height_info.frontier);
-		ASSERT_EQ (4, account_info.block_count);
-		ASSERT_FALSE (store.account.get (transaction, key3.pub, account_info));
+		ASSERT_EQ (4, account_info->block_count);
+		account_info = node->ledger.account_info (transaction, key3.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, key3.pub, confirmation_height_info));
 		ASSERT_EQ (2, confirmation_height_info.height);
 		ASSERT_EQ (receive3->hash (), confirmation_height_info.frontier);
-		ASSERT_EQ (2, account_info.block_count);
+		ASSERT_EQ (2, account_info->block_count);
 
 		// The accounts for key1 and key2 have 1 more block in the chain than is confirmed.
 		// So this can be rolled back, but the one before that cannot. Check that this is the case
@@ -382,7 +383,7 @@ TEST (confirmation_height, gap_bootstrap)
 		node1.block_processor.add (send2);
 		node1.block_processor.add (send3);
 		node1.block_processor.add (receive1);
-		node1.block_processor.flush ();
+		ASSERT_TIMELY (5s, node1.block (send3->hash ()) != nullptr);
 
 		add_callback_stats (node1);
 
@@ -390,14 +391,14 @@ TEST (confirmation_height, gap_bootstrap)
 		node1.process_active (receive2);
 		// Waits for the unchecked_map to process the 4 blocks added to the block_processor, saving them in the unchecked table
 		auto check_block_is_listed = [&] (nano::transaction const & transaction_a, nano::block_hash const & block_hash_a) {
-			return !node1.unchecked.get (transaction_a, block_hash_a).empty ();
+			return !node1.unchecked.get (block_hash_a).empty ();
 		};
-		ASSERT_TIMELY (15s, check_block_is_listed (node1.store.tx_begin_read (), receive2->previous ()));
+		ASSERT_TIMELY (5s, check_block_is_listed (node1.store.tx_begin_read (), receive2->previous ()));
 
 		// Confirmation heights should not be updated
 		{
 			auto transaction (node1.store.tx_begin_read ());
-			auto unchecked_count (node1.unchecked.count (transaction));
+			auto unchecked_count (node1.unchecked.count ());
 			ASSERT_EQ (unchecked_count, 2);
 
 			nano::confirmation_height_info confirmation_height_info;
@@ -409,7 +410,7 @@ TEST (confirmation_height, gap_bootstrap)
 		// Now complete the chain where the block comes in on the bootstrap network.
 		node1.block_processor.add (open1);
 
-		ASSERT_TIMELY (10s, node1.unchecked.count (node1.store.tx_begin_read ()) == 0);
+		ASSERT_TIMELY (5s, node1.unchecked.count () == 0);
 		// Confirmation height should be unchanged and unchecked should now be 0
 		{
 			auto transaction = node1.store.tx_begin_read ();
@@ -532,7 +533,7 @@ TEST (confirmation_height, gap_live)
 		}
 
 		// Vote and confirm all existing blocks
-		node->block_confirm (send1);
+		nano::test::start_election (system, *node, send1->hash ());
 		ASSERT_TIMELY (10s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 3);
 
 		// Now complete the chain where the block comes in on the live network
@@ -543,7 +544,7 @@ TEST (confirmation_height, gap_live)
 
 		// This should confirm the open block and the source of the receive blocks
 		auto transaction = node->store.tx_begin_read ();
-		auto unchecked_count = node->unchecked.count (transaction);
+		auto unchecked_count = node->unchecked.count ();
 		ASSERT_EQ (unchecked_count, 0);
 
 		nano::confirmation_height_info confirmation_height_info{};
@@ -687,9 +688,7 @@ TEST (confirmation_height, send_receive_between_2_accounts)
 		add_callback_stats (*node);
 
 		node->process_active (receive4);
-		node->block_processor.flush ();
-		node->block_confirm (receive4);
-		auto election = node->active.election (receive4->qualified_root ());
+		auto election = nano::test::start_election (system, *node, receive4->hash ());
 		ASSERT_NE (nullptr, election);
 		election->force_confirm ();
 
@@ -697,19 +696,20 @@ TEST (confirmation_height, send_receive_between_2_accounts)
 
 		auto transaction (node->store.tx_begin_read ());
 		ASSERT_TRUE (node->ledger.block_confirmed (transaction, receive4->hash ()));
-		nano::account_info account_info;
 		nano::confirmation_height_info confirmation_height_info;
-		ASSERT_FALSE (node->store.account.get (transaction, nano::dev::genesis_key.pub, account_info));
+		auto account_info = node->ledger.account_info (transaction, nano::dev::genesis_key.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, nano::dev::genesis_key.pub, confirmation_height_info));
 		ASSERT_EQ (6, confirmation_height_info.height);
 		ASSERT_EQ (send5->hash (), confirmation_height_info.frontier);
-		ASSERT_EQ (7, account_info.block_count);
+		ASSERT_EQ (7, account_info->block_count);
 
-		ASSERT_FALSE (node->store.account.get (transaction, key1.pub, account_info));
+		account_info = node->ledger.account_info (transaction, key1.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, key1.pub, confirmation_height_info));
 		ASSERT_EQ (5, confirmation_height_info.height);
 		ASSERT_EQ (receive4->hash (), confirmation_height_info.frontier);
-		ASSERT_EQ (5, account_info.block_count);
+		ASSERT_EQ (5, account_info->block_count);
 
 		ASSERT_EQ (10, node->stats.count (nano::stat::type::confirmation_height, nano::stat::detail::blocks_confirmed, nano::stat::dir::in));
 		ASSERT_EQ (10, node->stats.count (nano::stat::type::confirmation_height, get_stats_detail (mode_a), nano::stat::dir::in));
@@ -805,22 +805,21 @@ TEST (confirmation_height, send_receive_self)
 
 		add_callback_stats (*node);
 
-		node->block_confirm (receive3);
-		auto election = node->active.election (receive3->qualified_root ());
+		auto election = nano::test::start_election (system, *node, receive3->hash ());
 		ASSERT_NE (nullptr, election);
 		election->force_confirm ();
 
-		ASSERT_TIMELY (10s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 6);
+		ASSERT_TIMELY (5s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 6);
 
 		auto transaction (node->store.tx_begin_read ());
 		ASSERT_TRUE (node->ledger.block_confirmed (transaction, receive3->hash ()));
-		nano::account_info account_info;
-		ASSERT_FALSE (node->store.account.get (transaction, nano::dev::genesis_key.pub, account_info));
+		auto account_info = node->ledger.account_info (transaction, nano::dev::genesis_key.pub);
+		ASSERT_TRUE (account_info);
 		nano::confirmation_height_info confirmation_height_info;
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, nano::dev::genesis_key.pub, confirmation_height_info));
 		ASSERT_EQ (7, confirmation_height_info.height);
 		ASSERT_EQ (receive3->hash (), confirmation_height_info.frontier);
-		ASSERT_EQ (8, account_info.block_count);
+		ASSERT_EQ (8, account_info->block_count);
 		ASSERT_EQ (6, node->stats.count (nano::stat::type::confirmation_height, nano::stat::detail::blocks_confirmed, nano::stat::dir::in));
 		ASSERT_EQ (6, node->stats.count (nano::stat::type::confirmation_height, get_stats_detail (mode_a), nano::stat::dir::in));
 		ASSERT_EQ (6, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out));
@@ -1051,34 +1050,35 @@ TEST (confirmation_height, all_block_types)
 		}
 
 		add_callback_stats (*node);
-		node->block_confirm (state_send2);
-		auto election = node->active.election (state_send2->qualified_root ());
+		auto election = nano::test::start_election (system, *node, state_send2->hash ());
 		ASSERT_NE (nullptr, election);
 		election->force_confirm ();
 
-		ASSERT_TIMELY (10s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 15);
+		ASSERT_TIMELY (5s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 15);
 
 		auto transaction (node->store.tx_begin_read ());
 		ASSERT_TRUE (node->ledger.block_confirmed (transaction, state_send2->hash ()));
-		nano::account_info account_info;
 		nano::confirmation_height_info confirmation_height_info;
-		ASSERT_FALSE (node->store.account.get (transaction, nano::dev::genesis_key.pub, account_info));
+		auto account_info = node->ledger.account_info (transaction, nano::dev::genesis_key.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, nano::dev::genesis_key.pub, confirmation_height_info));
 		ASSERT_EQ (3, confirmation_height_info.height);
 		ASSERT_EQ (send1->hash (), confirmation_height_info.frontier);
-		ASSERT_LE (4, account_info.block_count);
+		ASSERT_LE (4, account_info->block_count);
 
-		ASSERT_FALSE (node->store.account.get (transaction, key1.pub, account_info));
+		account_info = node->ledger.account_info (transaction, key1.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, key1.pub, confirmation_height_info));
 		ASSERT_EQ (state_send1->hash (), confirmation_height_info.frontier);
 		ASSERT_EQ (6, confirmation_height_info.height);
-		ASSERT_LE (7, account_info.block_count);
+		ASSERT_LE (7, account_info->block_count);
 
-		ASSERT_FALSE (node->store.account.get (transaction, key2.pub, account_info));
+		account_info = node->ledger.account_info (transaction, key2.pub);
+		ASSERT_TRUE (account_info);
 		ASSERT_FALSE (node->store.confirmation_height.get (transaction, key2.pub, confirmation_height_info));
 		ASSERT_EQ (7, confirmation_height_info.height);
 		ASSERT_EQ (state_send2->hash (), confirmation_height_info.frontier);
-		ASSERT_LE (8, account_info.block_count);
+		ASSERT_LE (8, account_info->block_count);
 
 		ASSERT_EQ (15, node->stats.count (nano::stat::type::confirmation_height, nano::stat::detail::blocks_confirmed, nano::stat::dir::in));
 		ASSERT_EQ (15, node->stats.count (nano::stat::type::confirmation_height, get_stats_detail (mode_a), nano::stat::dir::in));
@@ -1092,98 +1092,53 @@ TEST (confirmation_height, all_block_types)
 	test_mode (nano::confirmation_height_mode::unbounded);
 }
 
-// this test cements a block on one node and another block on another node
-// it therefore tests that once a block is confirmed it cannot be rolled back
-// and if both nodes have different branches of the fork cemented then it is a permanent fork
+// This test ensures a block that's cemented cannot be rolled back by the node
+// A block is inserted and confirmed then later a different block is force inserted with a rollback attempt
 TEST (confirmation_height, conflict_rollback_cemented)
 {
 	// functor to perform the conflict_rollback_cemented test using a certain mode
 	auto test_mode = [] (nano::confirmation_height_mode mode_a) {
-		nano::state_block_builder builder{};
+		nano::state_block_builder builder;
 		auto const genesis_hash = nano::dev::genesis->hash ();
 
-		nano::test::system system{};
-		nano::node_flags node_flags{};
+		nano::test::system system;
+		nano::node_flags node_flags;
 		node_flags.confirmation_height_processor_mode = mode_a;
-
-		// create node 1 and account key1 (no voting key yet)
 		auto node1 = system.add_node (node_flags);
-		nano::keypair key1{};
 
+		nano::keypair key1;
 		// create one side of a forked transaction on node1
-		auto send1 = builder.make_block ()
-					 .previous (genesis_hash)
-					 .account (nano::dev::genesis_key.pub)
-					 .representative (nano::dev::genesis_key.pub)
-					 .link (key1.pub)
-					 .balance (nano::dev::constants.genesis_amount - 100)
-					 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-					 .work (*system.work.generate (genesis_hash))
-					 .build_shared ();
-		node1->process_active (send1);
-		ASSERT_TIMELY (5s, node1->active.election (send1->qualified_root ()) != nullptr);
+		auto fork1a = builder.make_block ()
+					  .previous (genesis_hash)
+					  .account (nano::dev::genesis_key.pub)
+					  .representative (nano::dev::genesis_key.pub)
+					  .link (key1.pub)
+					  .balance (nano::dev::constants.genesis_amount - 100)
+					  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
+					  .work (*system.work.generate (genesis_hash))
+					  .build_shared ();
+		ASSERT_EQ (nano::process_result::progress, node1->process (*fork1a).code);
+		ASSERT_TRUE (nano::test::confirm (*node1, { fork1a }));
+		ASSERT_TIMELY (5s, nano::test::confirmed (*node1, { fork1a }));
 
 		// create the other side of the fork on node2
 		nano::keypair key2;
-		auto send2 = builder.make_block ()
-					 .previous (genesis_hash)
-					 .account (nano::dev::genesis_key.pub)
-					 .representative (nano::dev::genesis_key.pub)
-					 .link (key2.pub)
-					 .balance (nano::dev::constants.genesis_amount - 100)
-					 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-					 .work (*system.work.generate (genesis_hash))
-					 .build_shared ();
+		auto fork1b = builder.make_block ()
+					  .previous (genesis_hash)
+					  .account (nano::dev::genesis_key.pub)
+					  .representative (nano::dev::genesis_key.pub)
+					  .link (key2.pub) // Different destination same 'previous'
+					  .balance (nano::dev::constants.genesis_amount - 100)
+					  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
+					  .work (*system.work.generate (genesis_hash))
+					  .build_shared ();
 
-		// create node2, with send2 pre-initialised in the ledger so that block send1 cannot possibly get in the ledger first
-		system.initialization_blocks.push_back (send2);
-		auto node2 = system.add_node (node_flags);
-		system.initialization_blocks.clear ();
-		auto wallet1 = system.wallet (0);
-		node2->process_active (send2);
-		ASSERT_TIMELY (5s, node2->active.election (send2->qualified_root ()) != nullptr);
-
-		// force confirm send2 on node2
-		ASSERT_TIMELY (5s, node2->ledger.store.block.get (node2->ledger.store.tx_begin_read (), send2->hash ()));
-		node2->process_confirmed (nano::election_status{ send2 });
-		ASSERT_TIMELY (5s, node2->block_confirmed (send2->hash ()));
-
-		// make node1 a voting node (it has all the voting weight)
-		// from now on, node1 can vote for send1 at any time
-		wallet1->insert_adhoc (nano::dev::genesis_key.prv);
-
-		// we expect node1 to vote for one side of the fork only, whichever side
-		std::shared_ptr<nano::election> election_send1_node1{};
-		ASSERT_EQ (send1->qualified_root (), send2->qualified_root ());
-		ASSERT_TIMELY (5s, (election_send1_node1 = node1->active.election (send1->qualified_root ())) != nullptr);
-		ASSERT_TIMELY (5s, 2 == election_send1_node1->votes ().size ());
-
-		// check that the send1 on node1 won the election and got confirmed
-		// this happens because send1 is seen first by node1, and therefore it already winning and it cannot replaced by send2
-		ASSERT_TIMELY (5s, election_send1_node1->confirmed ());
-		auto const winner = election_send1_node1->winner ();
-		ASSERT_NE (nullptr, winner);
-		ASSERT_EQ (*winner, *send1);
-
+		node1->block_processor.force (fork1b);
 		// node2 already has send2 forced confirmed whilst node1 should have confirmed send1 and therefore we have a cemented fork on node2
 		// and node2 should print an error message on the log that it cannot rollback send2 because it is already cemented
-		ASSERT_TIMELY (5s, 1 == node2->stats.count (nano::stat::type::ledger, nano::stat::detail::rollback_failed));
-
-		// get the tally for election the election on node1
-		// we expect the winner to be send1 and we expect send1 to have "genesis balance" vote weight
-		auto const tally = election_send1_node1->tally ();
-		ASSERT_FALSE (tally.empty ());
-		auto const & [amount, winner_alias] = *tally.begin ();
-		ASSERT_EQ (*winner_alias, *send1);
-		ASSERT_EQ (amount, nano::dev::constants.genesis_amount - 100);
-
-		// we expect send1 to exist on node1, is that because send2 is rolled back?
-		ASSERT_TRUE (node1->ledger.block_or_pruned_exists (send1->hash ()));
-		ASSERT_FALSE (node1->ledger.block_or_pruned_exists (send2->hash ()));
-
-		// we expect only send2  to be existing on node2
-		ASSERT_TRUE (node2->ledger.block_or_pruned_exists (send2->hash ()));
-		ASSERT_FALSE (node2->ledger.block_or_pruned_exists (send1->hash ()));
+		[[maybe_unused]] size_t count = 0;
+		ASSERT_TIMELY (5s, 1 == (count = node1->stats.count (nano::stat::type::ledger, nano::stat::detail::rollback_failed)));
+		ASSERT_TRUE (nano::test::confirmed (*node1, { fork1a->hash () })); // fork1a should still remain after the rollback failed event
 	};
 
 	test_mode (nano::confirmation_height_mode::bounded);
@@ -1195,7 +1150,7 @@ TEST (confirmation_heightDeathTest, rollback_added_block)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode
-		return;
+		GTEST_SKIP ();
 	}
 	// For ASSERT_DEATH_IF_SUPPORTED
 	testing::FLAGS_gtest_death_test_style = "threadsafe";
@@ -1208,7 +1163,7 @@ TEST (confirmation_heightDeathTest, rollback_added_block)
 		auto path (nano::unique_path ());
 		auto store = nano::make_store (logger, path, nano::dev::constants);
 		ASSERT_TRUE (!store->init_error ());
-		nano::stat stats;
+		nano::stats stats;
 		nano::ledger ledger (*store, stats, nano::dev::constants);
 		nano::write_database_queue write_database_queue (false);
 		nano::work_pool pool{ nano::dev::network_params.network, std::numeric_limits<unsigned>::max () };
@@ -1287,7 +1242,7 @@ TEST (confirmation_heightDeathTest, modified_chain)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode
-		return;
+		GTEST_SKIP ();
 	}
 	// For ASSERT_DEATH_IF_SUPPORTED
 	testing::FLAGS_gtest_death_test_style = "threadsafe";
@@ -1300,7 +1255,7 @@ TEST (confirmation_heightDeathTest, modified_chain)
 		auto path (nano::unique_path ());
 		auto store = nano::make_store (logger, path, nano::dev::constants);
 		ASSERT_TRUE (!store->init_error ());
-		nano::stat stats;
+		nano::stats stats;
 		nano::ledger ledger (*store, stats, nano::dev::constants);
 		nano::write_database_queue write_database_queue (false);
 		nano::work_pool pool{ nano::dev::network_params.network, std::numeric_limits<unsigned>::max () };
@@ -1365,7 +1320,7 @@ TEST (confirmation_heightDeathTest, modified_chain_account_removed)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode
-		return;
+		GTEST_SKIP ();
 	}
 	// For ASSERT_DEATH_IF_SUPPORTED
 	testing::FLAGS_gtest_death_test_style = "threadsafe";
@@ -1378,7 +1333,7 @@ TEST (confirmation_heightDeathTest, modified_chain_account_removed)
 		auto path (nano::unique_path ());
 		auto store = nano::make_store (logger, path, nano::dev::constants);
 		ASSERT_TRUE (!store->init_error ());
-		nano::stat stats;
+		nano::stats stats;
 		nano::ledger ledger (*store, stats, nano::dev::constants);
 		nano::write_database_queue write_database_queue (false);
 		nano::work_pool pool{ nano::dev::network_params.network, std::numeric_limits<unsigned>::max () };
@@ -1546,8 +1501,7 @@ TEST (confirmation_height, callback_confirmed_history)
 		add_callback_stats (*node);
 
 		node->process_active (send1);
-		node->block_processor.flush ();
-		node->block_confirm (send1);
+		ASSERT_NE (nano::test::start_election (system, *node, send1->hash ()), nullptr);
 		{
 			node->process_active (send);
 			node->block_processor.flush ();
@@ -1648,14 +1602,13 @@ TEST (confirmation_height, dependent_election)
 		add_callback_stats (*node);
 
 		// This election should be confirmed as active_conf_height
-		node->block_confirm (send1);
+		ASSERT_TRUE (nano::test::start_election (system, *node, send1->hash ()));
 		// Start an election and confirm it
-		node->block_confirm (send2);
-		auto election = node->active.election (send2->qualified_root ());
+		auto election = nano::test::start_election (system, *node, send2->hash ());
 		ASSERT_NE (nullptr, election);
 		election->force_confirm ();
 
-		ASSERT_TIMELY (10s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 3);
+		ASSERT_TIMELY (5s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 3);
 
 		ASSERT_EQ (1, node->stats.count (nano::stat::type::confirmation_observer, nano::stat::detail::active_quorum, nano::stat::dir::out));
 		ASSERT_EQ (1, node->stats.count (nano::stat::type::confirmation_observer, nano::stat::detail::active_conf_height, nano::stat::dir::out));
@@ -1805,11 +1758,10 @@ TEST (confirmation_height, cemented_gap_below_receive)
 		nano::mutex mutex;
 		add_callback_stats (*node, &observer_order, &mutex);
 
-		node->block_confirm (open1);
-		auto election = node->active.election (open1->qualified_root ());
+		auto election = nano::test::start_election (system, *node, open1->hash ());
 		ASSERT_NE (nullptr, election);
 		election->force_confirm ();
-		ASSERT_TIMELY (10s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 10);
+		ASSERT_TIMELY (5s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 10);
 
 		auto transaction = node->store.tx_begin_read ();
 		ASSERT_TRUE (node->ledger.block_confirmed (transaction, open1->hash ()));
@@ -1971,11 +1923,10 @@ TEST (confirmation_height, cemented_gap_below_no_cache)
 
 		add_callback_stats (*node);
 
-		node->block_confirm (open1);
-		auto election = node->active.election (open1->qualified_root ());
+		auto election = nano::test::start_election (system, *node, open1->hash ());
 		ASSERT_NE (nullptr, election);
 		election->force_confirm ();
-		ASSERT_TIMELY (10s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 6);
+		ASSERT_TIMELY (5s, node->stats.count (nano::stat::type::http_callback, nano::stat::detail::http_callback, nano::stat::dir::out) == 6);
 
 		auto transaction = node->store.tx_begin_read ();
 		ASSERT_TRUE (node->ledger.block_confirmed (transaction, open1->hash ()));
@@ -2087,13 +2038,13 @@ TEST (confirmation_height, unbounded_block_cache_iteration)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode
-		return;
+		GTEST_SKIP ();
 	}
 	nano::logger_mt logger;
 	auto path (nano::unique_path ());
 	auto store = nano::make_store (logger, path, nano::dev::constants);
 	ASSERT_TRUE (!store->init_error ());
-	nano::stat stats;
+	nano::stats stats;
 	nano::ledger ledger (*store, stats, nano::dev::constants);
 	nano::write_database_queue write_database_queue (false);
 	boost::latch initialized_latch{ 0 };
@@ -2158,7 +2109,7 @@ TEST (confirmation_height, pruned_source)
 	auto path (nano::unique_path ());
 	auto store = nano::make_store (logger, path, nano::dev::constants);
 	ASSERT_TRUE (!store->init_error ());
-	nano::stat stats;
+	nano::stats stats;
 	nano::ledger ledger (*store, stats, nano::dev::constants);
 	ledger.pruning = true;
 	nano::write_database_queue write_database_queue (false);

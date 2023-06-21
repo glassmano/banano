@@ -27,13 +27,10 @@ fi
 cmake \
 -G'Unix Makefiles' \
 -DACTIVE_NETWORK=nano_${NETWORK_CFG}_network \
--DNANO_POW_SERVER=ON \
 -DNANO_GUI=ON \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=${CONFIGURATION} \
 -DCMAKE_VERBOSE_MAKEFILE=ON \
--DBOOST_ROOT=/tmp/boost/ \
--DNANO_SHARED_BOOST=ON \
 -DQt5_DIR=${qt_dir} \
 -DCI_BUILD=true \
 -DCI_VERSION_PRE_RELEASE="${ci_version_pre_release}" \

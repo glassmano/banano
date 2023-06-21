@@ -17,10 +17,10 @@
 
 #include <boost/filesystem.hpp>
 
+#include <cstdlib>
 #include <fstream>
 #include <unordered_set>
-
-#include <stdlib.h>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -346,7 +346,7 @@ TEST (block_store, pending_iterator_comparison)
 	nano::logger_mt logger;
 	auto store = nano::make_store (logger, nano::unique_path (), nano::dev::constants);
 	ASSERT_TRUE (!store->init_error ());
-	nano::stat stats;
+	nano::stats stats;
 	auto transaction (store->tx_begin_write ());
 	// Populate pending
 	store->pending.put (transaction, nano::pending_key (nano::account (3), nano::block_hash (1)), nano::pending_info (nano::account (10), nano::amount (1), nano::epoch::epoch_0));
@@ -412,214 +412,6 @@ TEST (block_store, genesis)
 	ASSERT_EQ (nano::dev::genesis->account (), nano::dev::genesis_key.pub);
 }
 
-// This test checks for basic operations in the unchecked table such as putting a new block, retrieving it, and
-// deleting it from the database
-TEST (unchecked, simple)
-{
-	nano::test::system system{};
-	nano::logger_mt logger{};
-	auto store = nano::make_store (logger, nano::unique_path (), nano::dev::constants);
-	nano::unchecked_map unchecked{ *store, false };
-	ASSERT_TRUE (!store->init_error ());
-	nano::block_builder builder;
-	auto block = builder
-				 .send ()
-				 .previous (0)
-				 .destination (1)
-				 .balance (2)
-				 .sign (nano::keypair ().prv, 4)
-				 .work (5)
-				 .build_shared ();
-	// Asserts the block wasn't added yet to the unchecked table
-	auto block_listing1 = unchecked.get (store->tx_begin_read (), block->previous ());
-	ASSERT_TRUE (block_listing1.empty ());
-	// Enqueues a block to be saved on the unchecked table
-	unchecked.put (block->previous (), nano::unchecked_info (block));
-	// Waits for the block to get written in the database
-	auto check_block_is_listed = [&] (nano::transaction const & transaction_a, nano::block_hash const & block_hash_a) {
-		return unchecked.get (transaction_a, block_hash_a).size () > 0;
-	};
-	ASSERT_TIMELY (5s, check_block_is_listed (store->tx_begin_read (), block->previous ()));
-	auto transaction = store->tx_begin_write ();
-	// Retrieves the block from the database
-	auto block_listing2 = unchecked.get (transaction, block->previous ());
-	ASSERT_FALSE (block_listing2.empty ());
-	// Asserts the added block is equal to the retrieved one
-	ASSERT_EQ (*block, *(block_listing2[0].block));
-	// Deletes the block from the database
-	unchecked.del (transaction, nano::unchecked_key (block->previous (), block->hash ()));
-	// Asserts the block is deleted
-	auto block_listing3 = unchecked.get (transaction, block->previous ());
-	ASSERT_TRUE (block_listing3.empty ());
-}
-
-// This test ensures the unchecked table is able to receive more than one block
-TEST (unchecked, multiple)
-{
-	nano::test::system system{};
-	if (nano::rocksdb_config::using_rocksdb_in_tests ())
-	{
-		// Don't test this in rocksdb mode
-		return;
-	}
-	nano::logger_mt logger{};
-	auto store = nano::make_store (logger, nano::unique_path (), nano::dev::constants);
-	nano::unchecked_map unchecked{ *store, false };
-	ASSERT_TRUE (!store->init_error ());
-	nano::block_builder builder;
-	auto block = builder
-				 .send ()
-				 .previous (4)
-				 .destination (1)
-				 .balance (2)
-				 .sign (nano::keypair ().prv, 4)
-				 .work (5)
-				 .build_shared ();
-	// Asserts the block wasn't added yet to the unchecked table
-	auto block_listing1 = unchecked.get (store->tx_begin_read (), block->previous ());
-	ASSERT_TRUE (block_listing1.empty ());
-	// Enqueues the first block
-	unchecked.put (block->previous (), nano::unchecked_info (block));
-	// Enqueues a second block
-	unchecked.put (block->source (), nano::unchecked_info (block));
-	auto check_block_is_listed = [&] (nano::transaction const & transaction_a, nano::block_hash const & block_hash_a) {
-		return unchecked.get (transaction_a, block_hash_a).size () > 0;
-	};
-	// Waits for and asserts the first block gets saved in the database
-	ASSERT_TIMELY (5s, check_block_is_listed (store->tx_begin_read (), block->previous ()));
-	// Waits for and asserts the second block gets saved in the database
-	ASSERT_TIMELY (5s, check_block_is_listed (store->tx_begin_read (), block->source ()));
-}
-
-// This test ensures that a block can't occur twice in the unchecked table.
-TEST (unchecked, double_put)
-{
-	nano::test::system system{};
-	nano::logger_mt logger{};
-	auto store = nano::make_store (logger, nano::unique_path (), nano::dev::constants);
-	nano::unchecked_map unchecked{ *store, false };
-	ASSERT_TRUE (!store->init_error ());
-	nano::block_builder builder;
-	auto block = builder
-				 .send ()
-				 .previous (4)
-				 .destination (1)
-				 .balance (2)
-				 .sign (nano::keypair ().prv, 4)
-				 .work (5)
-				 .build_shared ();
-	// Asserts the block wasn't added yet to the unchecked table
-	auto block_listing1 = unchecked.get (store->tx_begin_read (), block->previous ());
-	ASSERT_TRUE (block_listing1.empty ());
-	// Enqueues the block to be saved in the unchecked table
-	unchecked.put (block->previous (), nano::unchecked_info (block));
-	// Enqueues the block again in an attempt to have it there twice
-	unchecked.put (block->previous (), nano::unchecked_info (block));
-	auto check_block_is_listed = [&] (nano::transaction const & transaction_a, nano::block_hash const & block_hash_a) {
-		return unchecked.get (transaction_a, block_hash_a).size () > 0;
-	};
-	// Waits for and asserts the block was added at least once
-	ASSERT_TIMELY (5s, check_block_is_listed (store->tx_begin_read (), block->previous ()));
-	// Asserts the block was added at most once -- this is objective of this test.
-	auto block_listing2 = unchecked.get (store->tx_begin_read (), block->previous ());
-	ASSERT_EQ (block_listing2.size (), 1);
-}
-
-// Tests that recurrent get calls return the correct values
-TEST (unchecked, multiple_get)
-{
-	nano::test::system system{};
-	nano::logger_mt logger{};
-	auto store = nano::make_store (logger, nano::unique_path (), nano::dev::constants);
-	nano::unchecked_map unchecked{ *store, false };
-	ASSERT_TRUE (!store->init_error ());
-	// Instantiates three blocks
-	nano::block_builder builder;
-	auto block1 = builder
-				  .send ()
-				  .previous (4)
-				  .destination (1)
-				  .balance (2)
-				  .sign (nano::keypair ().prv, 4)
-				  .work (5)
-				  .build_shared ();
-	auto block2 = builder
-				  .send ()
-				  .previous (3)
-				  .destination (1)
-				  .balance (2)
-				  .sign (nano::keypair ().prv, 4)
-				  .work (5)
-				  .build_shared ();
-	auto block3 = builder
-				  .send ()
-				  .previous (5)
-				  .destination (1)
-				  .balance (2)
-				  .sign (nano::keypair ().prv, 4)
-				  .work (5)
-				  .build_shared ();
-	// Add the blocks' info to the unchecked table
-	unchecked.put (block1->previous (), nano::unchecked_info (block1)); // unchecked1
-	unchecked.put (block1->hash (), nano::unchecked_info (block1)); // unchecked2
-	unchecked.put (block2->previous (), nano::unchecked_info (block2)); // unchecked3
-	unchecked.put (block1->previous (), nano::unchecked_info (block2)); // unchecked1
-	unchecked.put (block1->hash (), nano::unchecked_info (block2)); // unchecked2
-	unchecked.put (block3->previous (), nano::unchecked_info (block3));
-	unchecked.put (block3->hash (), nano::unchecked_info (block3)); // unchecked4
-	unchecked.put (block1->previous (), nano::unchecked_info (block3)); // unchecked1
-
-	// count the number of blocks in the unchecked table by counting them one by one
-	// we cannot trust the count() method if the backend is rocksdb
-	auto count_unchecked_blocks_one_by_one = [&store, &unchecked] () {
-		size_t count = 0;
-		auto transaction = store->tx_begin_read ();
-		unchecked.for_each (transaction, [&count] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
-			++count;
-		});
-		return count;
-	};
-
-	// Waits for the blocks to get saved in the database
-	ASSERT_TIMELY (5s, 8 == count_unchecked_blocks_one_by_one ());
-
-	std::vector<nano::block_hash> unchecked1;
-	// Asserts the entries will be found for the provided key
-	auto transaction = store->tx_begin_read ();
-	auto unchecked1_blocks = unchecked.get (transaction, block1->previous ());
-	ASSERT_EQ (unchecked1_blocks.size (), 3);
-	for (auto & i : unchecked1_blocks)
-	{
-		unchecked1.push_back (i.block->hash ());
-	}
-	// Asserts the payloads where correclty saved
-	ASSERT_TRUE (std::find (unchecked1.begin (), unchecked1.end (), block1->hash ()) != unchecked1.end ());
-	ASSERT_TRUE (std::find (unchecked1.begin (), unchecked1.end (), block2->hash ()) != unchecked1.end ());
-	ASSERT_TRUE (std::find (unchecked1.begin (), unchecked1.end (), block3->hash ()) != unchecked1.end ());
-	std::vector<nano::block_hash> unchecked2;
-	// Asserts the entries will be found for the provided key
-	auto unchecked2_blocks = unchecked.get (transaction, block1->hash ());
-	ASSERT_EQ (unchecked2_blocks.size (), 2);
-	for (auto & i : unchecked2_blocks)
-	{
-		unchecked2.push_back (i.block->hash ());
-	}
-	// Asserts the payloads where correctly saved
-	ASSERT_TRUE (std::find (unchecked2.begin (), unchecked2.end (), block1->hash ()) != unchecked2.end ());
-	ASSERT_TRUE (std::find (unchecked2.begin (), unchecked2.end (), block2->hash ()) != unchecked2.end ());
-	// Asserts the entry is found by the key and the payload is saved
-	auto unchecked3 = unchecked.get (transaction, block2->previous ());
-	ASSERT_EQ (unchecked3.size (), 1);
-	ASSERT_EQ (unchecked3[0].block->hash (), block2->hash ());
-	// Asserts the entry is found by the key and the payload is saved
-	auto unchecked4 = unchecked.get (transaction, block3->hash ());
-	ASSERT_EQ (unchecked4.size (), 1);
-	ASSERT_EQ (unchecked4[0].block->hash (), block3->hash ());
-	// Asserts no entry is found for a block that wasn't added
-	auto unchecked5 = unchecked.get (transaction, block2->hash ());
-	ASSERT_EQ (unchecked5.size (), 0);
-}
-
 TEST (block_store, empty_accounts)
 {
 	nano::logger_mt logger;
@@ -653,13 +445,11 @@ TEST (block_store, one_block)
 
 TEST (block_store, empty_bootstrap)
 {
+	nano::test::system system{};
 	nano::logger_mt logger;
-	auto store = nano::make_store (logger, nano::unique_path (), nano::dev::constants);
-	nano::unchecked_map unchecked{ *store, false };
-	ASSERT_TRUE (!store->init_error ());
-	auto transaction (store->tx_begin_read ());
+	nano::unchecked_map unchecked{ system.stats, false };
 	size_t count = 0;
-	unchecked.for_each (transaction, [&count] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
+	unchecked.for_each ([&count] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
 		++count;
 	});
 	ASSERT_EQ (count, 0);
@@ -846,14 +636,14 @@ namespace lmdb
 		if (nano::rocksdb_config::using_rocksdb_in_tests ())
 		{
 			// Don't test this in rocksdb mode
-			return;
+			GTEST_SKIP ();
 		}
 		// Check that upgrading from an unsupported version is not supported
 		auto path (nano::unique_path ());
 		nano::logger_mt logger;
 		{
 			nano::lmdb::store store (logger, path, nano::dev::constants);
-			nano::stat stats;
+			nano::stats stats;
 			nano::ledger ledger (store, stats, nano::dev::constants);
 			auto transaction (store.tx_begin_write ());
 			store.initialize (transaction, ledger.cache, nano::dev::constants);
@@ -871,7 +661,7 @@ namespace lmdb
 		// Now try with the minimum version
 		{
 			nano::lmdb::store store (logger, path1, nano::dev::constants);
-			nano::stat stats;
+			nano::stats stats;
 			nano::ledger ledger (store, stats, nano::dev::constants);
 			auto transaction (store.tx_begin_write ());
 			store.initialize (transaction, ledger.cache, nano::dev::constants);
@@ -900,7 +690,7 @@ TEST (mdb_block_store, bad_path)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode
-		return;
+		GTEST_SKIP ();
 	}
 	nano::logger_mt logger;
 	nano::lmdb::store store (logger, boost::filesystem::path ("///"), nano::dev::constants);
@@ -934,7 +724,7 @@ TEST (block_store, roots)
 					  .sign (nano::keypair ().prv, 4)
 					  .work (5)
 					  .build ();
-	ASSERT_EQ (send_block->hashables.previous, send_block->root ());
+	ASSERT_EQ (send_block->hashables.previous, send_block->root ().as_block_hash ());
 	auto change_block = builder
 						.change ()
 						.previous (0)
@@ -942,7 +732,7 @@ TEST (block_store, roots)
 						.sign (nano::keypair ().prv, 3)
 						.work (4)
 						.build ();
-	ASSERT_EQ (change_block->hashables.previous, change_block->root ());
+	ASSERT_EQ (change_block->hashables.previous, change_block->root ().as_block_hash ());
 	auto receive_block = builder
 						 .receive ()
 						 .previous (0)
@@ -950,7 +740,7 @@ TEST (block_store, roots)
 						 .sign (nano::keypair ().prv, 3)
 						 .work (4)
 						 .build ();
-	ASSERT_EQ (receive_block->hashables.previous, receive_block->root ());
+	ASSERT_EQ (receive_block->hashables.previous, receive_block->root ().as_block_hash ());
 	auto open_block = builder
 					  .open ()
 					  .source (0)
@@ -959,7 +749,7 @@ TEST (block_store, roots)
 					  .sign (nano::keypair ().prv, 4)
 					  .work (5)
 					  .build ();
-	ASSERT_EQ (open_block->hashables.account, open_block->root ());
+	ASSERT_EQ (open_block->hashables.account, open_block->root ().as_account ());
 }
 
 TEST (block_store, pending_exists)
@@ -1169,53 +959,6 @@ TEST (block_store, pruned_random)
 	ASSERT_EQ (hash1, random_hash);
 }
 
-namespace nano
-{
-namespace lmdb
-{
-	// Databases need to be dropped in order to convert to dupsort compatible
-	TEST (block_store, DISABLED_change_dupsort) // Unchecked is no longer dupsort table
-	{
-		auto path (nano::unique_path ());
-		nano::logger_mt logger{};
-		nano::lmdb::store store{ logger, path, nano::dev::constants };
-		nano::unchecked_map unchecked{ store, false };
-		auto transaction (store.tx_begin_write ());
-		ASSERT_EQ (0, mdb_drop (store.env.tx (transaction), store.unchecked_store.unchecked_handle, 1));
-		ASSERT_EQ (0, mdb_dbi_open (store.env.tx (transaction), "unchecked", MDB_CREATE, &store.unchecked_store.unchecked_handle));
-		nano::block_builder builder;
-		auto send1 = builder
-					 .send ()
-					 .previous (0)
-					 .destination (0)
-					 .balance (0)
-					 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-					 .work (0)
-					 .build_shared ();
-		auto send2 = builder
-					 .send ()
-					 .previous (1)
-					 .destination (0)
-					 .balance (0)
-					 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-					 .work (0)
-					 .build_shared ();
-		ASSERT_NE (send1->hash (), send2->hash ());
-		unchecked.put (send1->hash (), nano::unchecked_info (send1));
-		unchecked.put (send1->hash (), nano::unchecked_info (send2));
-		ASSERT_EQ (0, mdb_drop (store.env.tx (transaction), store.unchecked_store.unchecked_handle, 0));
-		mdb_dbi_close (store.env, store.unchecked_store.unchecked_handle);
-		ASSERT_EQ (0, mdb_dbi_open (store.env.tx (transaction), "unchecked", MDB_CREATE | MDB_DUPSORT, &store.unchecked_store.unchecked_handle));
-		unchecked.put (send1->hash (), nano::unchecked_info (send1));
-		unchecked.put (send1->hash (), nano::unchecked_info (send2));
-		ASSERT_EQ (0, mdb_drop (store.env.tx (transaction), store.unchecked_store.unchecked_handle, 1));
-		ASSERT_EQ (0, mdb_dbi_open (store.env.tx (transaction), "unchecked", MDB_CREATE | MDB_DUPSORT, &store.unchecked_store.unchecked_handle));
-		unchecked.put (send1->hash (), nano::unchecked_info (send1));
-		unchecked.put (send1->hash (), nano::unchecked_info (send2));
-	}
-}
-}
-
 TEST (block_store, state_block)
 {
 	nano::logger_mt logger;
@@ -1263,7 +1006,7 @@ TEST (mdb_block_store, sideband_height)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode
-		return;
+		GTEST_SKIP ();
 	}
 	nano::logger_mt logger;
 	nano::keypair key1;
@@ -1271,8 +1014,8 @@ TEST (mdb_block_store, sideband_height)
 	nano::keypair key3;
 	nano::lmdb::store store (logger, nano::unique_path (), nano::dev::constants);
 	ASSERT_FALSE (store.init_error ());
-	nano::stat stat;
-	nano::ledger ledger (store, stat, nano::dev::constants);
+	nano::stats stats;
+	nano::ledger ledger (store, stats, nano::dev::constants);
 	nano::block_builder builder;
 	auto transaction (store.tx_begin_write ());
 	store.initialize (transaction, ledger.cache, nano::dev::constants);
@@ -1636,7 +1379,7 @@ namespace lmdb
 		if (nano::rocksdb_config::using_rocksdb_in_tests ())
 		{
 			// Don't test this in rocksdb mode
-			return;
+			GTEST_SKIP ();
 		}
 		// Extract confirmation height to a separate database
 		auto path (nano::unique_path ());
@@ -1673,12 +1416,12 @@ namespace lmdb
 		{
 			nano::logger_mt logger;
 			nano::lmdb::store store (logger, path, nano::dev::constants);
-			nano::stat stats;
+			nano::stats stats;
 			nano::ledger ledger (store, stats, nano::dev::constants);
 			auto transaction (store.tx_begin_write ());
 			store.initialize (transaction, ledger.cache, nano::dev::constants);
-			nano::account_info account_info;
-			ASSERT_FALSE (store.account.get (transaction, nano::dev::genesis->account (), account_info));
+			auto account_info = ledger.account_info (transaction, nano::dev::genesis->account ());
+			ASSERT_TRUE (account_info);
 			nano::confirmation_height_info confirmation_height_info;
 			ASSERT_FALSE (store.confirmation_height.get (transaction, nano::dev::genesis->account (),
 			confirmation_height_info));
@@ -1799,14 +1542,14 @@ namespace lmdb
 		if (nano::rocksdb_config::using_rocksdb_in_tests ())
 		{
 			// Don't test this in rocksdb mode
-			return;
+			GTEST_SKIP ();
 		}
 		auto path (nano::unique_path ());
 		nano::mdb_val value;
 		{
 			nano::logger_mt logger;
 			nano::lmdb::store store (logger, path, nano::dev::constants);
-			nano::stat stats;
+			nano::stats stats;
 			nano::ledger ledger (store, stats, nano::dev::constants);
 			auto transaction (store.tx_begin_write ());
 			store.initialize (transaction, ledger.cache, nano::dev::constants);
@@ -1846,7 +1589,7 @@ namespace lmdb
 		if (nano::rocksdb_config::using_rocksdb_in_tests ())
 		{
 			// Don't test this in rocksdb mode
-			return;
+			GTEST_SKIP ();
 		}
 		nano::work_pool pool{ nano::dev::network_params.network, std::numeric_limits<unsigned>::max () };
 		nano::block_builder builder;
@@ -1887,7 +1630,7 @@ namespace lmdb
 			{
 				nano::logger_mt logger;
 				nano::lmdb::store store (logger, path, nano::dev::constants);
-				nano::stat stats;
+				nano::stats stats;
 				nano::ledger ledger (store, stats, nano::dev::constants);
 				auto transaction (store.tx_begin_write ());
 				store.initialize (transaction, ledger.cache, nano::dev::constants);
@@ -1936,7 +1679,7 @@ namespace lmdb
 		if (nano::rocksdb_config::using_rocksdb_in_tests ())
 		{
 			// Don't test this in rocksdb mode
-			return;
+			GTEST_SKIP ();
 		}
 		auto path (nano::unique_path ());
 		nano::block_builder builder;
@@ -2066,7 +1809,7 @@ namespace lmdb
 			nano::logger_mt logger;
 			nano::lmdb::store store (logger, path, nano::dev::constants);
 			auto transaction (store.tx_begin_write ());
-			nano::stat stats;
+			nano::stats stats;
 			nano::ledger ledger (store, stats, nano::dev::constants);
 			store.initialize (transaction, ledger.cache, nano::dev::constants);
 			ASSERT_EQ (nano::process_result::progress, ledger.process (transaction, *send_zero).code);
@@ -2245,7 +1988,7 @@ namespace lmdb
 		if (nano::rocksdb_config::using_rocksdb_in_tests ())
 		{
 			// Don't test this in rocksdb mode
-			return;
+			GTEST_SKIP ();
 		}
 		auto path (nano::unique_path ());
 		nano::keypair key1;
@@ -2306,7 +2049,7 @@ namespace lmdb
 		{
 			nano::logger_mt logger;
 			nano::lmdb::store store (logger, path, nano::dev::constants);
-			nano::stat stats;
+			nano::stats stats;
 			nano::ledger ledger (store, stats, nano::dev::constants);
 			auto transaction (store.tx_begin_write ());
 			store.initialize (transaction, ledger.cache, nano::dev::constants);
@@ -2382,11 +2125,11 @@ namespace lmdb
 		if (nano::rocksdb_config::using_rocksdb_in_tests ())
 		{
 			// Don't test this in rocksdb mode
-			return;
+			GTEST_SKIP ();
 		}
 		auto path (nano::unique_path ());
 		nano::logger_mt logger;
-		nano::stat stats;
+		nano::stats stats;
 		{
 			nano::lmdb::store store (logger, path, nano::dev::constants);
 			nano::ledger ledger (store, stats, nano::dev::constants);
@@ -2411,11 +2154,11 @@ namespace lmdb
 		if (nano::rocksdb_config::using_rocksdb_in_tests ())
 		{
 			// Don't test this in rocksdb mode
-			return;
+			GTEST_SKIP ();
 		}
 		auto path (nano::unique_path ());
 		nano::logger_mt logger;
-		nano::stat stats;
+		nano::stats stats;
 		{
 			nano::lmdb::store store (logger, path, nano::dev::constants);
 			nano::ledger ledger (store, stats, nano::dev::constants);
@@ -2434,6 +2177,89 @@ namespace lmdb
 		auto transaction (store.tx_begin_read ());
 		ASSERT_LT (19, store.version.get (transaction));
 	}
+
+	TEST (mdb_block_store, upgrade_v21_v22)
+	{
+		if (nano::rocksdb_config::using_rocksdb_in_tests ())
+		{
+			// Don't test this in rocksdb mode
+			GTEST_SKIP ();
+		}
+
+		auto path (nano::unique_path ());
+		nano::logger_mt logger;
+		nano::stats stats;
+		auto const check_correct_state = [&] () {
+			nano::lmdb::store store (logger, path, nano::dev::constants);
+			auto transaction (store.tx_begin_write ());
+			ASSERT_EQ (store.version.get (transaction), store.version_current);
+			MDB_dbi unchecked_handle{ 0 };
+			ASSERT_EQ (MDB_NOTFOUND, mdb_dbi_open (store.env.tx (transaction), "unchecked", 0, &unchecked_handle));
+		};
+
+		// Testing current version doesn't contain the unchecked table
+		check_correct_state ();
+
+		// Setting the database to its 21st version state
+		{
+			nano::lmdb::store store (logger, path, nano::dev::constants);
+			auto transaction (store.tx_begin_write ());
+			store.version.put (transaction, 21);
+			MDB_dbi unchecked_handle{ 0 };
+			ASSERT_FALSE (mdb_dbi_open (store.env.tx (transaction), "unchecked", MDB_CREATE, &unchecked_handle));
+			ASSERT_EQ (store.version.get (transaction), 21);
+		}
+
+		// Testing the upgrade code worked
+		check_correct_state ();
+	}
+}
+
+namespace rocksdb
+{
+	TEST (rocksdb_block_store, upgrade_v21_v22)
+	{
+		if (!nano::rocksdb_config::using_rocksdb_in_tests ())
+		{
+			// Don't test this in LMDB mode
+			GTEST_SKIP ();
+		}
+
+		auto const path = nano::unique_path ();
+		nano::logger_mt logger;
+		nano::stats stats;
+		auto const check_correct_state = [&] () {
+			nano::rocksdb::store store (logger, path, nano::dev::constants);
+			auto transaction (store.tx_begin_write ());
+			ASSERT_EQ (store.version.get (transaction), store.version_current);
+			ASSERT_FALSE (store.column_family_exists ("unchecked"));
+		};
+
+		// Testing current version doesn't contain the unchecked table
+		check_correct_state ();
+
+		// Setting the database to its 21st version state
+		{
+			nano::rocksdb::store store (logger, path, nano::dev::constants);
+
+			// Create a column family for "unchecked"
+			::rocksdb::ColumnFamilyOptions new_cf_options;
+			::rocksdb::ColumnFamilyHandle * new_cf_handle;
+			::rocksdb::Status status = store.db->CreateColumnFamily (new_cf_options, "unchecked", &new_cf_handle);
+			store.handles.emplace_back (new_cf_handle);
+
+			// The new column family was created successfully, and 'new_cf_handle' now points to it.
+			ASSERT_TRUE (status.ok ());
+
+			// Rollback the database version number.
+			auto transaction (store.tx_begin_write ());
+			store.version.put (transaction, 21);
+			ASSERT_EQ (store.version.get (transaction), 21);
+		}
+
+		// Testing the upgrade code worked
+		check_correct_state ();
+	}
 }
 }
 
@@ -2442,7 +2268,7 @@ TEST (mdb_block_store, upgrade_backup)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode
-		return;
+		GTEST_SKIP ();
 	}
 	auto dir (nano::unique_path ());
 	namespace fs = boost::filesystem;
@@ -2483,7 +2309,7 @@ TEST (block_store, confirmation_height)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode
-		return;
+		GTEST_SKIP ();
 	}
 	auto path (nano::unique_path ());
 	nano::logger_mt logger;
@@ -2529,7 +2355,7 @@ TEST (block_store, final_vote)
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
 		// Don't test this in rocksdb mode as deletions cause inaccurate counts
-		return;
+		GTEST_SKIP ();
 	}
 	auto path (nano::unique_path ());
 	nano::logger_mt logger;
@@ -2647,9 +2473,9 @@ TEST (rocksdb_block_store, tombstone_count)
 {
 	if (!nano::rocksdb_config::using_rocksdb_in_tests ())
 	{
-		return;
+		GTEST_SKIP ();
 	}
-	nano::test::system system{};
+	nano::test::system system;
 	nano::logger_mt logger;
 	auto store = std::make_unique<nano::rocksdb::store> (logger, nano::unique_path (), nano::dev::constants);
 	ASSERT_TRUE (!store->init_error ());
@@ -2663,18 +2489,17 @@ TEST (rocksdb_block_store, tombstone_count)
 				 .work (5)
 				 .build_shared ();
 	// Enqueues a block to be saved in the database
-	auto previous = block->previous ();
-	store->unchecked.put (store->tx_begin_write (), previous, nano::unchecked_info (block));
-	nano::unchecked_key key{ previous, block->hash () };
+	nano::account account{ 1 };
+	store->account.put (store->tx_begin_write (), account, nano::account_info{});
 	auto check_block_is_listed = [&] (nano::transaction const & transaction_a) {
-		return store->unchecked.exists (transaction_a, key);
+		return store->account.exists (transaction_a, account);
 	};
 	// Waits for the block to get saved
 	ASSERT_TIMELY (5s, check_block_is_listed (store->tx_begin_read ()));
-	ASSERT_EQ (store->tombstone_map.at (nano::tables::unchecked).num_since_last_flush.load (), 0);
-	// Perorms a delete and checks for the tombstone counter
-	store->unchecked.del (store->tx_begin_write (), nano::unchecked_key (previous, block->hash ()));
-	ASSERT_TIMELY (5s, store->tombstone_map.at (nano::tables::unchecked).num_since_last_flush.load () == 1);
+	ASSERT_EQ (store->tombstone_map.at (nano::tables::accounts).num_since_last_flush.load (), 0);
+	// Performs a delete operation and checks for the tombstone counter
+	store->account.del (store->tx_begin_write (), account);
+	ASSERT_TIMELY (5s, store->tombstone_map.at (nano::tables::accounts).num_since_last_flush.load () == 1);
 }
 }
 

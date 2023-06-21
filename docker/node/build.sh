@@ -57,5 +57,5 @@ esac
 REPO_ROOT=`git rev-parse --show-toplevel`
 COMMIT_SHA=`git rev-parse --short HEAD`
 pushd $REPO_ROOT
-docker build --build-arg NETWORK="${network}" -f docker/node/${docker_file} -t bananocoin/banano${network_tag}:latest${alpine_tag} .
+docker buildx build --platform=linux/amd64,linux/arm64 --push --build-arg NETWORK="${network}" -f docker/node/${docker_file} -t bananocoin/banano${network_tag}:V25.1${alpine_tag} -t bananocoin/banano${network_tag}:V25${alpine_tag} . -t bananocoin/banano${network_tag}:latest${alpine_tag}
 popd

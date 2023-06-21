@@ -13,7 +13,6 @@
 #include <nano/node/rocksdb/pending_store.hpp>
 #include <nano/node/rocksdb/pruned_store.hpp>
 #include <nano/node/rocksdb/rocksdb_iterator.hpp>
-#include <nano/node/rocksdb/unchecked_store.hpp>
 #include <nano/node/rocksdb/version_store.hpp>
 #include <nano/secure/common.hpp>
 
@@ -23,7 +22,6 @@
 #include <rocksdb/slice.h>
 #include <rocksdb/table.h>
 #include <rocksdb/utilities/optimistic_transaction_db.h>
-#include <rocksdb/utilities/transaction.h>
 
 namespace nano
 {
@@ -33,9 +31,11 @@ class rocksdb_block_store_tombstone_count_Test;
 
 namespace rocksdb
 {
+	class rocksdb_block_store_upgrade_v21_v22_Test;
+
 	/**
- * rocksdb implementation of the block store
- */
+ 	 * rocksdb implementation of the block store
+ 	 */
 	class store : public nano::store
 	{
 	private:
@@ -48,7 +48,6 @@ namespace rocksdb
 		nano::rocksdb::peer_store peer_store;
 		nano::rocksdb::pending_store pending_store;
 		nano::rocksdb::pruned_store pruned_store;
-		nano::rocksdb::unchecked_store unchecked_store;
 		nano::rocksdb::version_store version_store;
 
 	public:
@@ -61,7 +60,6 @@ namespace rocksdb
 		friend class nano::rocksdb::peer_store;
 		friend class nano::rocksdb::pending_store;
 		friend class nano::rocksdb::pruned_store;
-		friend class nano::rocksdb::unchecked_store;
 		friend class nano::rocksdb::version_store;
 
 		explicit store (nano::logger_mt &, boost::filesystem::path const &, nano::ledger_constants & constants, nano::rocksdb_config const & = nano::rocksdb_config{}, bool open_read_only = false);
@@ -140,10 +138,17 @@ namespace rocksdb
 		int status_code_not_found () const override;
 		int drop (nano::write_transaction const &, tables) override;
 
+		std::vector<::rocksdb::ColumnFamilyDescriptor> get_single_column_family (std::string cf_name) const;
+		std::vector<::rocksdb::ColumnFamilyDescriptor> get_current_column_families (std::string const & path_a, ::rocksdb::Options const & options_a) const;
+		::rocksdb::ColumnFamilyHandle * get_column_family (char const * name) const;
+		bool column_family_exists (char const * name) const;
 		::rocksdb::ColumnFamilyHandle * table_to_column_family (tables table_a) const;
 		int clear (::rocksdb::ColumnFamilyHandle * column_family);
 
-		void open (bool & error_a, boost::filesystem::path const & path_a, bool open_read_only_a);
+		void open (bool & error_a, boost::filesystem::path const & path_a, bool open_read_only_a, ::rocksdb::Options const & options_a, std::vector<::rocksdb::ColumnFamilyDescriptor> column_families);
+
+		bool do_upgrades (nano::write_transaction const &);
+		void upgrade_v21_to_v22 (nano::write_transaction const &);
 
 		void construct_column_family_mutexes ();
 		::rocksdb::Options get_db_options ();
@@ -168,6 +173,7 @@ namespace rocksdb
 		constexpr static int base_block_cache_size = 8;
 
 		friend class nano::rocksdb_block_store_tombstone_count_Test;
+		friend class nano::rocksdb::rocksdb_block_store_upgrade_v21_v22_Test;
 	};
 } // namespace rocksdb
 } // namespace nano

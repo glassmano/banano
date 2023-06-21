@@ -1,6 +1,5 @@
 #include <nano/lib/blocks.hpp>
 #include <nano/lib/memory.hpp>
-#include <nano/lib/work.hpp>
 #include <nano/node/active_transactions.hpp>
 #include <nano/node/common.hpp>
 #include <nano/node/election.hpp>
@@ -8,17 +7,7 @@
 #include <nano/node/wallet.hpp>
 #include <nano/secure/buffer.hpp>
 
-#include <boost/endian/conversion.hpp>
 #include <boost/format.hpp>
-#include <boost/pool/pool_alloc.hpp>
-#include <boost/variant/get.hpp>
-
-#include <numeric>
-#include <sstream>
-
-std::chrono::seconds constexpr nano::telemetry_cache_cutoffs::dev;
-std::chrono::seconds constexpr nano::telemetry_cache_cutoffs::beta;
-std::chrono::seconds constexpr nano::telemetry_cache_cutoffs::live;
 
 uint64_t nano::ip_address_hash_raw (boost::asio::ip::address const & ip_a, uint16_t port)
 {
@@ -121,6 +110,16 @@ bool nano::parse_endpoint (std::string const & string, nano::endpoint & endpoint
 	return result;
 }
 
+std::optional<nano::endpoint> nano::parse_endpoint (const std::string & str)
+{
+	nano::endpoint endpoint;
+	if (!parse_endpoint (str, endpoint))
+	{
+		return endpoint; // Success
+	}
+	return {};
+}
+
 bool nano::parse_tcp_endpoint (std::string const & string, nano::tcp_endpoint & endpoint_a)
 {
 	boost::asio::ip::address address;
@@ -131,12 +130,6 @@ bool nano::parse_tcp_endpoint (std::string const & string, nano::tcp_endpoint & 
 		endpoint_a = nano::tcp_endpoint (address, port);
 	}
 	return result;
-}
-
-std::chrono::seconds nano::telemetry_cache_cutoffs::network_to_time (network_constants const & network_constants)
-{
-	return std::chrono::seconds{ (network_constants.is_live_network () || network_constants.is_test_network ()) ? live : network_constants.is_beta_network () ? beta
-																																							  : dev };
 }
 
 nano::node_singleton_memory_pool_purge_guard::node_singleton_memory_pool_purge_guard () :

@@ -1,15 +1,15 @@
 #include <nano/crypto_lib/random_pool_shuffle.hpp>
 #include <nano/lib/threading.hpp>
+#include <nano/node/bootstrap_ascending/service.hpp>
 #include <nano/node/network.hpp>
 #include <nano/node/node.hpp>
 #include <nano/node/telemetry.hpp>
-#include <nano/secure/buffer.hpp>
 
-#include <boost/asio/steady_timer.hpp>
 #include <boost/format.hpp>
-#include <boost/variant/get.hpp>
 
-#include <numeric>
+/*
+ * network
+ */
 
 nano::network::network (nano::node & node_a, uint16_t port_a) :
 	id (nano::network_constants::active_network),
@@ -19,62 +19,18 @@ nano::network::network (nano::node & node_a, uint16_t port_a) :
 		debug_assert (message.header.version_using >= node.network_params.network.protocol_version_min);
 		process_message (message, channel);
 	} },
-	buffer_container (node_a.stats, nano::network::buffer_size, 4096), // 2Mb receive buffer
 	resolver (node_a.io_ctx),
 	tcp_message_manager (node_a.config.tcp_incoming_connections_max),
 	node (node_a),
 	publish_filter (256 * 1024),
-	udp_channels (node_a, port_a, inbound),
 	tcp_channels (node_a, inbound),
 	port (port_a),
 	disconnect_observer ([] () {})
 {
-	if (!node.flags.disable_udp)
-	{
-		port = udp_channels.get_local_endpoint ().port ();
-	}
-
-	boost::thread::attributes attrs;
-	nano::thread_attributes::set (attrs);
-	// UDP
-	for (std::size_t i = 0; i < node.config.network_threads && !node.flags.disable_udp; ++i)
-	{
-		packet_processing_threads.emplace_back (attrs, [this] () {
-			nano::thread_role::set (nano::thread_role::name::packet_processing);
-			try
-			{
-				udp_channels.process_packets ();
-			}
-			catch (boost::system::error_code & ec)
-			{
-				this->node.logger.always_log (FATAL_LOG_PREFIX, ec.message ());
-				release_assert (false);
-			}
-			catch (std::error_code & ec)
-			{
-				this->node.logger.always_log (FATAL_LOG_PREFIX, ec.message ());
-				release_assert (false);
-			}
-			catch (std::runtime_error & err)
-			{
-				this->node.logger.always_log (FATAL_LOG_PREFIX, err.what ());
-				release_assert (false);
-			}
-			catch (...)
-			{
-				this->node.logger.always_log (FATAL_LOG_PREFIX, "Unknown exception");
-				release_assert (false);
-			}
-			if (this->node.config.logging.network_packet_logging ())
-			{
-				this->node.logger.try_log ("Exiting UDP packet processing thread");
-			}
-		});
-	}
 	// TCP
 	for (std::size_t i = 0; i < node.config.network_threads && !node.flags.disable_tcp_realtime; ++i)
 	{
-		packet_processing_threads.emplace_back (attrs, [this] () {
+		packet_processing_threads.emplace_back (nano::thread_attributes::get_default (), [this] () {
 			nano::thread_role::set (nano::thread_role::name::packet_processing);
 			try
 			{
@@ -120,11 +76,6 @@ void nano::network::start ()
 		ongoing_cleanup ();
 	}
 	ongoing_syn_cookie_cleanup ();
-	if (!node.flags.disable_udp)
-	{
-		udp_channels.start ();
-		debug_assert (udp_channels.get_local_endpoint ().port () == port);
-	}
 	if (!node.flags.disable_tcp_realtime)
 	{
 		tcp_channels.start ();
@@ -136,10 +87,8 @@ void nano::network::stop ()
 {
 	if (!stopped.exchange (true))
 	{
-		udp_channels.stop ();
 		tcp_channels.stop ();
 		resolver.cancel ();
-		buffer_container.stop ();
 		tcp_message_manager.stop ();
 		port = 0;
 		for (auto & thread : packet_processing_threads)
@@ -163,23 +112,34 @@ void nano::network::send_keepalive_self (std::shared_ptr<nano::transport::channe
 	channel_a->send (message);
 }
 
-void nano::network::send_node_id_handshake (std::shared_ptr<nano::transport::channel> const & channel_a, boost::optional<nano::uint256_union> const & query, boost::optional<nano::uint256_union> const & respond_to)
+void nano::network::send_node_id_handshake (std::shared_ptr<nano::transport::channel> const & channel_a, std::optional<nano::uint256_union> const & cookie, std::optional<nano::uint256_union> const & respond_to)
 {
-	boost::optional<std::pair<nano::account, nano::signature>> response (boost::none);
+	std::optional<nano::node_id_handshake::response_payload> response;
 	if (respond_to)
 	{
-		response = std::make_pair (node.node_id.pub, nano::sign_message (node.node_id.prv, node.node_id.pub, *respond_to));
-		debug_assert (!nano::validate_message (response->first, *respond_to, response->second));
+		nano::node_id_handshake::response_payload pld{ node.node_id.pub, nano::sign_message (node.node_id.prv, node.node_id.pub, *respond_to) };
+		debug_assert (!nano::validate_message (pld.node_id, *respond_to, pld.signature));
+		response = pld;
 	}
+
+	std::optional<nano::node_id_handshake::query_payload> query;
+	if (cookie)
+	{
+		nano::node_id_handshake::query_payload pld{ *cookie };
+		query = pld;
+	}
+
 	nano::node_id_handshake message{ node.network_params.network, query, response };
+
 	if (node.config.logging.network_node_id_handshake_logging ())
 	{
-		node.logger.try_log (boost::str (boost::format ("Node ID handshake sent with node ID %1% to %2%: query %3%, respond_to %4% (signature %5%)") % node.node_id.pub.to_node_id () % channel_a->get_endpoint () % (query ? query->to_string () : std::string ("[none]")) % (respond_to ? respond_to->to_string () : std::string ("[none]")) % (response ? response->second.to_string () : std::string ("[none]"))));
+		node.logger.try_log (boost::str (boost::format ("Node ID handshake sent with node ID %1% to %2%: query %3%, respond_to %4% (signature %5%)") % node.node_id.pub.to_node_id () % channel_a->get_endpoint () % (query ? query->cookie.to_string () : std::string ("[none]")) % (respond_to ? respond_to->to_string () : std::string ("[none]")) % (response ? response->signature.to_string () : std::string ("[none]"))));
 	}
+
 	channel_a->send (message);
 }
 
-void nano::network::flood_message (nano::message & message_a, nano::buffer_drop_policy const drop_policy_a, float const scale_a)
+void nano::network::flood_message (nano::message & message_a, nano::transport::buffer_drop_policy const drop_policy_a, float const scale_a)
 {
 	for (auto & i : list (fanout (scale_a)))
 	{
@@ -191,17 +151,17 @@ void nano::network::flood_keepalive (float const scale_a)
 {
 	nano::keepalive message{ node.network_params.network };
 	random_fill (message.peers);
-	flood_message (message, nano::buffer_drop_policy::limiter, scale_a);
+	flood_message (message, nano::transport::buffer_drop_policy::limiter, scale_a);
 }
 
 void nano::network::flood_keepalive_self (float const scale_a)
 {
 	nano::keepalive message{ node.network_params.network };
 	fill_keepalive_self (message.peers);
-	flood_message (message, nano::buffer_drop_policy::limiter, scale_a);
+	flood_message (message, nano::transport::buffer_drop_policy::limiter, scale_a);
 }
 
-void nano::network::flood_block (std::shared_ptr<nano::block> const & block_a, nano::buffer_drop_policy const drop_policy_a)
+void nano::network::flood_block (std::shared_ptr<nano::block> const & block_a, nano::transport::buffer_drop_policy const drop_policy_a)
 {
 	nano::publish message (node.network_params.network, block_a);
 	flood_message (message, drop_policy_a);
@@ -212,11 +172,11 @@ void nano::network::flood_block_initial (std::shared_ptr<nano::block> const & bl
 	nano::publish message (node.network_params.network, block_a);
 	for (auto const & i : node.rep_crawler.principal_representatives ())
 	{
-		i.channel->send (message, nullptr, nano::buffer_drop_policy::no_limiter_drop);
+		i.channel->send (message, nullptr, nano::transport::buffer_drop_policy::no_limiter_drop);
 	}
 	for (auto & i : list_non_pr (fanout (1.0)))
 	{
-		i->send (message, nullptr, nano::buffer_drop_policy::no_limiter_drop);
+		i->send (message, nullptr, nano::transport::buffer_drop_policy::no_limiter_drop);
 	}
 }
 
@@ -234,7 +194,7 @@ void nano::network::flood_vote_pr (std::shared_ptr<nano::vote> const & vote_a)
 	nano::confirm_ack message{ node.network_params.network, vote_a };
 	for (auto const & i : node.rep_crawler.principal_representatives ())
 	{
-		i.channel->send (message, nullptr, nano::buffer_drop_policy::no_limiter_drop);
+		i.channel->send (message, nullptr, nano::transport::buffer_drop_policy::no_limiter_drop);
 	}
 }
 
@@ -527,10 +487,10 @@ public:
 		nano::telemetry_ack telemetry_ack{ node.network_params.network };
 		if (!node.flags.disable_providing_telemetry_metrics)
 		{
-			auto telemetry_data = nano::local_telemetry_data (node.ledger, node.network, node.unchecked, node.config.bandwidth_limit, node.network_params, node.startup_time, node.default_difficulty (nano::work_version::work_1), node.node_id);
+			auto telemetry_data = node.local_telemetry ();
 			telemetry_ack = nano::telemetry_ack{ node.network_params.network, telemetry_data };
 		}
-		channel->send (telemetry_ack, nullptr, nano::buffer_drop_policy::no_socket_drop);
+		channel->send (telemetry_ack, nullptr, nano::transport::buffer_drop_policy::no_socket_drop);
 	}
 
 	void telemetry_ack (nano::telemetry_ack const & message_a) override
@@ -540,10 +500,7 @@ public:
 			node.logger.try_log (boost::str (boost::format ("Received telemetry_ack message from %1%") % channel->to_string ()));
 		}
 
-		if (node.telemetry)
-		{
-			node.telemetry->set (message_a, *channel);
-		}
+		node.telemetry.process (message_a, channel);
 	}
 
 	void asc_pull_req (nano::asc_pull_req const & message) override
@@ -553,7 +510,7 @@ public:
 
 	void asc_pull_ack (nano::asc_pull_ack const & message) override
 	{
-		// TODO: Process in ascending bootstrap client
+		node.ascendboot.process (message, channel);
 	}
 
 private:
@@ -612,8 +569,7 @@ bool nano::network::reachout (nano::endpoint const & endpoint_a, bool allow_loca
 	bool error = not_a_peer (endpoint_a, allow_local_peers);
 	if (!error)
 	{
-		error |= udp_channels.reachout (endpoint_a);
-		error |= tcp_channels.reachout (endpoint_a);
+		error = tcp_channels.reachout (endpoint_a);
 	}
 	return error;
 }
@@ -622,7 +578,6 @@ std::deque<std::shared_ptr<nano::transport::channel>> nano::network::list (std::
 {
 	std::deque<std::shared_ptr<nano::transport::channel>> result;
 	tcp_channels.list (result, minimum_version_a, include_tcp_temporary_channels_a);
-	udp_channels.list (result, minimum_version_a);
 	nano::random_pool_shuffle (result.begin (), result.end ());
 	if (count_a > 0 && result.size () > count_a)
 	{
@@ -635,7 +590,6 @@ std::deque<std::shared_ptr<nano::transport::channel>> nano::network::list_non_pr
 {
 	std::deque<std::shared_ptr<nano::transport::channel>> result;
 	tcp_channels.list (result);
-	udp_channels.list (result);
 	nano::random_pool_shuffle (result.begin (), result.end ());
 	result.erase (std::remove_if (result.begin (), result.end (), [this] (std::shared_ptr<nano::transport::channel> const & channel) {
 		return this->node.rep_crawler.is_pr (*channel);
@@ -656,17 +610,7 @@ std::size_t nano::network::fanout (float scale) const
 
 std::unordered_set<std::shared_ptr<nano::transport::channel>> nano::network::random_set (std::size_t count_a, uint8_t min_version_a, bool include_temporary_channels_a) const
 {
-	std::unordered_set<std::shared_ptr<nano::transport::channel>> result (tcp_channels.random_set (count_a, min_version_a, include_temporary_channels_a));
-	std::unordered_set<std::shared_ptr<nano::transport::channel>> udp_random (udp_channels.random_set (count_a, min_version_a));
-	for (auto i (udp_random.begin ()), n (udp_random.end ()); i != n && result.size () < count_a * 1.5; ++i)
-	{
-		result.insert (*i);
-	}
-	while (result.size () > count_a)
-	{
-		result.erase (result.begin ());
-	}
-	return result;
+	return tcp_channels.random_set (count_a, min_version_a, include_temporary_channels_a);
 }
 
 void nano::network::random_fill (std::array<nano::endpoint, 8> & target_a) const
@@ -715,39 +659,19 @@ void nano::network::fill_keepalive_self (std::array<nano::endpoint, 8> & target_
 	}
 }
 
-nano::tcp_endpoint nano::network::bootstrap_peer (bool lazy_bootstrap)
+nano::tcp_endpoint nano::network::bootstrap_peer ()
 {
-	nano::tcp_endpoint result (boost::asio::ip::address_v6::any (), 0);
-	bool use_udp_peer (nano::random_pool::generate_word32 (0, 1));
-	if (use_udp_peer || tcp_channels.size () == 0)
-	{
-		result = udp_channels.bootstrap_peer (node.network_params.network.protocol_version_min);
-	}
-	if (result == nano::tcp_endpoint (boost::asio::ip::address_v6::any (), 0))
-	{
-		result = tcp_channels.bootstrap_peer (node.network_params.network.protocol_version_min);
-	}
-	return result;
+	return tcp_channels.bootstrap_peer ();
 }
 
 std::shared_ptr<nano::transport::channel> nano::network::find_channel (nano::endpoint const & endpoint_a)
 {
-	std::shared_ptr<nano::transport::channel> result (tcp_channels.find_channel (nano::transport::map_endpoint_to_tcp (endpoint_a)));
-	if (!result)
-	{
-		result = udp_channels.channel (endpoint_a);
-	}
-	return result;
+	return tcp_channels.find_channel (nano::transport::map_endpoint_to_tcp (endpoint_a));
 }
 
 std::shared_ptr<nano::transport::channel> nano::network::find_node_id (nano::account const & node_id_a)
 {
-	std::shared_ptr<nano::transport::channel> result (tcp_channels.find_node_id (node_id_a));
-	if (!result)
-	{
-		result = udp_channels.find_node_id (node_id_a);
-	}
-	return result;
+	return tcp_channels.find_node_id (node_id_a);
 }
 
 nano::endpoint nano::network::endpoint () const
@@ -758,7 +682,6 @@ nano::endpoint nano::network::endpoint () const
 void nano::network::cleanup (std::chrono::steady_clock::time_point const & cutoff_a)
 {
 	tcp_channels.purge (cutoff_a);
-	udp_channels.purge (cutoff_a);
 	if (node.network.empty ())
 	{
 		disconnect_observer ();
@@ -804,7 +727,7 @@ void nano::network::ongoing_keepalive ()
 
 std::size_t nano::network::size () const
 {
-	return tcp_channels.size () + udp_channels.size ();
+	return tcp_channels.size ();
 }
 
 float nano::network::size_sqrt () const
@@ -824,100 +747,78 @@ void nano::network::erase (nano::transport::channel const & channel_a)
 	{
 		tcp_channels.erase (channel_a.get_tcp_endpoint ());
 	}
-	else if (channel_type != nano::transport::transport_type::loopback)
-	{
-		udp_channels.erase (channel_a.get_endpoint ());
-		udp_channels.clean_node_id (channel_a.get_node_id ());
-	}
 }
 
-nano::message_buffer_manager::message_buffer_manager (nano::stat & stats_a, std::size_t size, std::size_t count) :
-	stats (stats_a),
-	free (count),
-	full (count),
-	slab (size * count),
-	entries (count),
-	stopped (false)
+void nano::network::exclude (std::shared_ptr<nano::transport::channel> const & channel)
 {
-	debug_assert (count > 0);
-	debug_assert (size > 0);
-	auto slab_data (slab.data ());
-	auto entry_data (entries.data ());
-	for (auto i (0); i < count; ++i, ++entry_data)
-	{
-		*entry_data = { slab_data + i * size, 0, nano::endpoint () };
-		free.push_back (entry_data);
-	}
+	// Add to peer exclusion list
+	excluded_peers.add (channel->get_tcp_endpoint ());
+
+	// Disconnect
+	erase (*channel);
 }
 
-nano::message_buffer * nano::message_buffer_manager::allocate ()
+bool nano::network::verify_handshake_response (const nano::node_id_handshake::response_payload & response, const nano::endpoint & remote_endpoint)
 {
-	nano::unique_lock<nano::mutex> lock (mutex);
-	if (!stopped && free.empty () && full.empty ())
+	// Prevent connection with ourselves
+	if (response.node_id == node.node_id.pub)
 	{
-		stats.inc (nano::stat::type::udp, nano::stat::detail::blocking, nano::stat::dir::in);
-		condition.wait (lock, [&stopped = stopped, &free = free, &full = full] { return stopped || !free.empty () || !full.empty (); });
+		node.stats.inc (nano::stat::type::handshake, nano::stat::detail::invalid_node_id);
+		return false; // Fail
 	}
-	nano::message_buffer * result (nullptr);
-	if (!free.empty ())
+
+	// Prevent mismatched genesis
+	if (response.v2 && response.v2->genesis != node.network_params.ledger.genesis->hash ())
 	{
-		result = free.front ();
-		free.pop_front ();
+		node.stats.inc (nano::stat::type::handshake, nano::stat::detail::invalid_genesis);
+		return false; // Fail
 	}
-	if (result == nullptr && !full.empty ())
+
+	auto cookie = syn_cookies.cookie (remote_endpoint);
+	if (!cookie)
 	{
-		result = full.front ();
-		full.pop_front ();
-		stats.inc (nano::stat::type::udp, nano::stat::detail::overflow, nano::stat::dir::in);
+		node.stats.inc (nano::stat::type::handshake, nano::stat::detail::missing_cookie);
+		return false; // Fail
 	}
-	release_assert (result || stopped);
-	return result;
+
+	if (!response.validate (*cookie))
+	{
+		node.stats.inc (nano::stat::type::handshake, nano::stat::detail::invalid_signature);
+		return false; // Fail
+	}
+
+	node.stats.inc (nano::stat::type::handshake, nano::stat::detail::ok);
+	return true; // OK
 }
 
-void nano::message_buffer_manager::enqueue (nano::message_buffer * data_a)
+std::optional<nano::node_id_handshake::query_payload> nano::network::prepare_handshake_query (const nano::endpoint & remote_endpoint)
 {
-	debug_assert (data_a != nullptr);
+	if (auto cookie = syn_cookies.assign (remote_endpoint); cookie)
 	{
-		nano::lock_guard<nano::mutex> lock (mutex);
-		full.push_back (data_a);
+		nano::node_id_handshake::query_payload query{ *cookie };
+		return query;
 	}
-	condition.notify_all ();
+	return std::nullopt;
 }
 
-nano::message_buffer * nano::message_buffer_manager::dequeue ()
+nano::node_id_handshake::response_payload nano::network::prepare_handshake_response (const nano::node_id_handshake::query_payload & query, bool v2) const
 {
-	nano::unique_lock<nano::mutex> lock (mutex);
-	while (!stopped && full.empty ())
+	nano::node_id_handshake::response_payload response{};
+	response.node_id = node.node_id.pub;
+	if (v2)
 	{
-		condition.wait (lock);
+		nano::node_id_handshake::response_payload::v2_payload response_v2{};
+		response_v2.salt = nano::random_pool::generate<uint256_union> ();
+		response_v2.genesis = node.network_params.ledger.genesis->hash ();
+		response.v2 = response_v2;
 	}
-	nano::message_buffer * result (nullptr);
-	if (!full.empty ())
-	{
-		result = full.front ();
-		full.pop_front ();
-	}
-	return result;
+	response.sign (query.cookie, node.node_id);
+	return response;
 }
 
-void nano::message_buffer_manager::release (nano::message_buffer * data_a)
-{
-	debug_assert (data_a != nullptr);
-	{
-		nano::lock_guard<nano::mutex> lock (mutex);
-		free.push_back (data_a);
-	}
-	condition.notify_all ();
-}
-
-void nano::message_buffer_manager::stop ()
-{
-	{
-		nano::lock_guard<nano::mutex> lock (mutex);
-		stopped = true;
-	}
-	condition.notify_all ();
-}
+/*
+ * tcp_message_manager
+ */
 
 nano::tcp_message_manager::tcp_message_manager (unsigned incoming_connections_max_a) :
 	max_entries (incoming_connections_max_a * nano::tcp_message_manager::max_entries_per_connection + 1)
@@ -928,7 +829,7 @@ nano::tcp_message_manager::tcp_message_manager (unsigned incoming_connections_ma
 void nano::tcp_message_manager::put_message (nano::tcp_message_item const & item_a)
 {
 	{
-		nano::unique_lock<nano::mutex> lock (mutex);
+		nano::unique_lock<nano::mutex> lock{ mutex };
 		while (entries.size () >= max_entries && !stopped)
 		{
 			producer_condition.wait (lock);
@@ -941,7 +842,7 @@ void nano::tcp_message_manager::put_message (nano::tcp_message_item const & item
 nano::tcp_message_item nano::tcp_message_manager::get_message ()
 {
 	nano::tcp_message_item result;
-	nano::unique_lock<nano::mutex> lock (mutex);
+	nano::unique_lock<nano::mutex> lock{ mutex };
 	while (entries.empty () && !stopped)
 	{
 		consumer_condition.wait (lock);
@@ -963,12 +864,16 @@ nano::tcp_message_item nano::tcp_message_manager::get_message ()
 void nano::tcp_message_manager::stop ()
 {
 	{
-		nano::lock_guard<nano::mutex> lock (mutex);
+		nano::lock_guard<nano::mutex> lock{ mutex };
 		stopped = true;
 	}
 	consumer_condition.notify_all ();
 	producer_condition.notify_all ();
 }
+
+/*
+ * syn_cookies
+ */
 
 nano::syn_cookies::syn_cookies (std::size_t max_cookies_per_ip_a) :
 	max_cookies_per_ip (max_cookies_per_ip_a)
@@ -979,7 +884,7 @@ boost::optional<nano::uint256_union> nano::syn_cookies::assign (nano::endpoint c
 {
 	auto ip_addr (endpoint_a.address ());
 	debug_assert (ip_addr.is_v6 ());
-	nano::lock_guard<nano::mutex> lock (syn_cookie_mutex);
+	nano::lock_guard<nano::mutex> lock{ syn_cookie_mutex };
 	unsigned & ip_cookies = cookies_per_ip[ip_addr];
 	boost::optional<nano::uint256_union> result;
 	if (ip_cookies < max_cookies_per_ip)
@@ -1001,7 +906,7 @@ bool nano::syn_cookies::validate (nano::endpoint const & endpoint_a, nano::accou
 {
 	auto ip_addr (endpoint_a.address ());
 	debug_assert (ip_addr.is_v6 ());
-	nano::lock_guard<nano::mutex> lock (syn_cookie_mutex);
+	nano::lock_guard<nano::mutex> lock{ syn_cookie_mutex };
 	auto result (true);
 	auto cookie_it (cookies.find (endpoint_a));
 	if (cookie_it != cookies.end () && !nano::validate_message (node_id, cookie_it->second.cookie, sig))
@@ -1023,7 +928,7 @@ bool nano::syn_cookies::validate (nano::endpoint const & endpoint_a, nano::accou
 
 void nano::syn_cookies::purge (std::chrono::steady_clock::time_point const & cutoff_a)
 {
-	nano::lock_guard<nano::mutex> lock (syn_cookie_mutex);
+	nano::lock_guard<nano::mutex> lock{ syn_cookie_mutex };
 	auto it (cookies.begin ());
 	while (it != cookies.end ())
 	{
@@ -1048,9 +953,33 @@ void nano::syn_cookies::purge (std::chrono::steady_clock::time_point const & cut
 	}
 }
 
+std::optional<nano::uint256_union> nano::syn_cookies::cookie (const nano::endpoint & endpoint_a)
+{
+	auto ip_addr (endpoint_a.address ());
+	debug_assert (ip_addr.is_v6 ());
+	nano::lock_guard<nano::mutex> lock{ syn_cookie_mutex };
+	auto cookie_it (cookies.find (endpoint_a));
+	if (cookie_it != cookies.end ())
+	{
+		auto cookie = cookie_it->second.cookie;
+		cookies.erase (cookie_it);
+		unsigned & ip_cookies = cookies_per_ip[ip_addr];
+		if (ip_cookies > 0)
+		{
+			--ip_cookies;
+		}
+		else
+		{
+			debug_assert (false && "More SYN cookies deleted than created for IP");
+		}
+		return cookie;
+	}
+	return std::nullopt;
+}
+
 std::size_t nano::syn_cookies::cookies_size ()
 {
-	nano::lock_guard<nano::mutex> lock (syn_cookie_mutex);
+	nano::lock_guard<nano::mutex> lock{ syn_cookie_mutex };
 	return cookies.size ();
 }
 
@@ -1058,9 +987,8 @@ std::unique_ptr<nano::container_info_component> nano::collect_container_info (ne
 {
 	auto composite = std::make_unique<container_info_composite> (name);
 	composite->add_component (network.tcp_channels.collect_container_info ("tcp_channels"));
-	composite->add_component (network.udp_channels.collect_container_info ("udp_channels"));
 	composite->add_component (network.syn_cookies.collect_container_info ("syn_cookies"));
-	composite->add_component (collect_container_info (network.excluded_peers, "excluded_peers"));
+	composite->add_component (network.excluded_peers.collect_container_info ("excluded_peers"));
 	return composite;
 }
 
@@ -1069,7 +997,7 @@ std::unique_ptr<nano::container_info_component> nano::syn_cookies::collect_conta
 	std::size_t syn_cookies_count;
 	std::size_t syn_cookies_per_ip_count;
 	{
-		nano::lock_guard<nano::mutex> syn_cookie_guard (syn_cookie_mutex);
+		nano::lock_guard<nano::mutex> syn_cookie_guard{ syn_cookie_mutex };
 		syn_cookies_count = cookies.size ();
 		syn_cookies_per_ip_count = cookies_per_ip.size ();
 	}

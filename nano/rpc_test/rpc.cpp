@@ -7,6 +7,7 @@
 #include <nano/node/node_rpc_config.hpp>
 #include <nano/rpc/rpc.hpp>
 #include <nano/rpc/rpc_request_processor.hpp>
+#include <nano/rpc_test/common.hpp>
 #include <nano/test_common/network.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/telemetry.hpp>
@@ -22,197 +23,7 @@
 #include <utility>
 
 using namespace std::chrono_literals;
-
-namespace
-{
-class test_response
-{
-public:
-	test_response (boost::property_tree::ptree const & request_a, boost::asio::io_context & io_ctx_a) :
-		request (request_a),
-		sock (io_ctx_a)
-	{
-	}
-
-	test_response (boost::property_tree::ptree const & request_a, uint16_t port_a, boost::asio::io_context & io_ctx_a) :
-		request (request_a),
-		sock (io_ctx_a)
-	{
-		run (port_a);
-	}
-
-	void run (uint16_t port_a)
-	{
-		sock.async_connect (nano::tcp_endpoint (boost::asio::ip::address_v6::loopback (), port_a), [this] (boost::system::error_code const & ec) {
-			if (!ec)
-			{
-				std::stringstream ostream;
-				boost::property_tree::write_json (ostream, request);
-				req.method (boost::beast::http::verb::post);
-				req.target ("/");
-				req.version (11);
-				ostream.flush ();
-				req.body () = ostream.str ();
-				req.prepare_payload ();
-				boost::beast::http::async_write (sock, req, [this] (boost::system::error_code const & ec, size_t bytes_transferred) {
-					if (!ec)
-					{
-						boost::beast::http::async_read (sock, sb, resp, [this] (boost::system::error_code const & ec, size_t bytes_transferred) {
-							if (!ec)
-							{
-								std::stringstream body (resp.body ());
-								try
-								{
-									boost::property_tree::read_json (body, json);
-									status = 200;
-								}
-								catch (std::exception &)
-								{
-									status = 500;
-								}
-							}
-							else
-							{
-								status = 400;
-							}
-						});
-					}
-					else
-					{
-						status = 600;
-					}
-				});
-			}
-			else
-			{
-				status = 400;
-			}
-		});
-	}
-	boost::property_tree::ptree const & request;
-	boost::asio::ip::tcp::socket sock;
-	boost::property_tree::ptree json;
-	boost::beast::flat_buffer sb;
-	boost::beast::http::request<boost::beast::http::string_body> req;
-	boost::beast::http::response<boost::beast::http::string_body> resp;
-	std::atomic<int> status{ 0 };
-};
-
-class scoped_io_thread_name_change
-{
-public:
-	scoped_io_thread_name_change ()
-	{
-		renew ();
-	}
-
-	~scoped_io_thread_name_change ()
-	{
-		reset ();
-	}
-
-	void reset ()
-	{
-		nano::thread_role::set (nano::thread_role::name::unknown);
-	}
-
-	void renew ()
-	{
-		nano::thread_role::set (nano::thread_role::name::io);
-	}
-};
-
-class rpc_context
-{
-public:
-	rpc_context (std::shared_ptr<nano::rpc> & rpc_a, std::unique_ptr<nano::ipc::ipc_server> & ipc_server_a, std::unique_ptr<nano::ipc_rpc_processor> & ipc_rpc_processor_a, std::unique_ptr<nano::node_rpc_config> & node_rpc_config_a, std::unique_ptr<scoped_io_thread_name_change> & io_scope_a)
-	{
-		rpc = std::move (rpc_a);
-		ipc_server = std::move (ipc_server_a);
-		ipc_rpc_processor = std::move (ipc_rpc_processor_a);
-		node_rpc_config = std::move (node_rpc_config_a);
-		io_scope = std::move (io_scope_a);
-	}
-
-	std::shared_ptr<nano::rpc> rpc;
-	std::unique_ptr<nano::ipc::ipc_server> ipc_server;
-	std::unique_ptr<nano::ipc_rpc_processor> ipc_rpc_processor;
-	std::unique_ptr<nano::node_rpc_config> node_rpc_config;
-	std::unique_ptr<scoped_io_thread_name_change> io_scope;
-};
-
-std::shared_ptr<nano::node> add_ipc_enabled_node (nano::test::system & system, nano::node_config & node_config, nano::node_flags const & node_flags)
-{
-	node_config.ipc_config.transport_tcp.enabled = true;
-	node_config.ipc_config.transport_tcp.port = nano::test::get_available_port ();
-	return system.add_node (node_config, node_flags);
-}
-
-std::shared_ptr<nano::node> add_ipc_enabled_node (nano::test::system & system, nano::node_config & node_config)
-{
-	return add_ipc_enabled_node (system, node_config, nano::node_flags ());
-}
-
-std::shared_ptr<nano::node> add_ipc_enabled_node (nano::test::system & system)
-{
-	nano::node_config node_config (nano::test::get_available_port (), system.logging);
-	return add_ipc_enabled_node (system, node_config);
-}
-
-void reset_confirmation_height (nano::store & store, nano::account const & account)
-{
-	auto transaction = store.tx_begin_write ();
-	nano::confirmation_height_info confirmation_height_info;
-	if (!store.confirmation_height.get (transaction, account, confirmation_height_info))
-	{
-		store.confirmation_height.clear (transaction, account);
-	}
-}
-
-void wait_response_impl (nano::test::system & system, rpc_context const & rpc_ctx, boost::property_tree::ptree & request, std::chrono::duration<double, std::nano> const & time, boost::property_tree::ptree & response_json)
-{
-	test_response response (request, rpc_ctx.rpc->listening_port (), system.io_ctx);
-	ASSERT_TIMELY (time, response.status != 0);
-	ASSERT_EQ (200, response.status);
-	response_json = response.json;
-}
-
-boost::property_tree::ptree wait_response (nano::test::system & system, rpc_context const & rpc_ctx, boost::property_tree::ptree & request, std::chrono::duration<double, std::nano> const & time = 5s)
-{
-	boost::property_tree::ptree response_json;
-	wait_response_impl (system, rpc_ctx, request, time, response_json);
-	return response_json;
-}
-
-void check_block_response_count (nano::test::system & system, rpc_context const & rpc_ctx, boost::property_tree::ptree & request, uint64_t size_count)
-{
-	auto response (wait_response (system, rpc_ctx, request));
-	auto & blocks = response.get_child ("blocks");
-	if (size_count > 0)
-	{
-		ASSERT_EQ (size_count, blocks.front ().second.size ());
-	}
-	else
-	{
-		ASSERT_TRUE (blocks.empty ());
-	}
-}
-
-rpc_context add_rpc (nano::test::system & system, std::shared_ptr<nano::node> const & node_a)
-{
-	auto scoped_thread_name_io (std::make_unique<scoped_io_thread_name_change> ());
-	auto node_rpc_config (std::make_unique<nano::node_rpc_config> ());
-	auto ipc_server (std::make_unique<nano::ipc::ipc_server> (*node_a, *node_rpc_config));
-	nano::rpc_config rpc_config (node_a->network_params.network, nano::test::get_available_port (), true);
-	const auto ipc_tcp_port = ipc_server->listening_tcp_port ();
-	debug_assert (ipc_tcp_port.has_value ());
-	auto ipc_rpc_processor (std::make_unique<nano::ipc_rpc_processor> (system.io_ctx, rpc_config, ipc_tcp_port.value ()));
-	auto rpc (std::make_shared<nano::rpc> (system.io_ctx, rpc_config, *ipc_rpc_processor));
-	rpc->start ();
-
-	return rpc_context{ rpc, ipc_server, ipc_rpc_processor, node_rpc_config, scoped_thread_name_io };
-}
-}
+using namespace nano::test;
 
 TEST (rpc, wrapped_task)
 {
@@ -256,6 +67,7 @@ TEST (rpc, account_balance)
 				 .build ();
 
 	ASSERT_EQ (nano::process_result::progress, node->process (*send1).code);
+	ASSERT_TIMELY (5s, !node->active.active (*send1));
 
 	auto const rpc_ctx = add_rpc (system, node);
 
@@ -642,7 +454,6 @@ TEST (rpc, wallet_password_change)
 	auto response (wait_response (system, rpc_ctx, request));
 	std::string account_text1 (response.get<std::string> ("changed"));
 	ASSERT_EQ (account_text1, "1");
-	rpc_ctx.io_scope->reset ();
 	auto transaction (system.wallet (0)->wallets.tx_begin_write ());
 	ASSERT_TRUE (system.wallet (0)->store.valid_password (transaction));
 	ASSERT_TRUE (system.wallet (0)->enter_password (transaction, ""));
@@ -730,10 +541,10 @@ TEST (rpc, wallet_representative_set_force)
 	while (representative != key.pub)
 	{
 		auto transaction (node->store.tx_begin_read ());
-		nano::account_info info;
-		if (!node->store.account.get (transaction, nano::dev::genesis_key.pub, info))
+		auto info = node->ledger.account_info (transaction, nano::dev::genesis_key.pub);
+		if (info)
 		{
-			representative = info.representative;
+			representative = info->representative;
 		}
 		ASSERT_NO_ERROR (system.poll ());
 	}
@@ -843,7 +654,6 @@ TEST (rpc, wallet_export)
 	auto response (wait_response (system, rpc_ctx, request));
 	std::string wallet_json (response.get<std::string> ("json"));
 	bool error (false);
-	rpc_ctx.io_scope->reset ();
 	auto transaction (node->wallets.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
 	nano::wallet_store store (error, kdf, transaction, nano::dev::genesis->account (), 1, "0", wallet_json);
@@ -1290,12 +1100,10 @@ TEST (rpc, account_history)
 	}
 
 	// Test filtering
-	rpc_ctx.io_scope->reset ();
 	auto account2 (system.wallet (0)->deterministic_insert ());
 	auto send2 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, account2, node0->config.receive_minimum.number ()));
 	ASSERT_NE (nullptr, send2);
 	auto receive2 (system.wallet (0)->receive_action (send2->hash (), account2, node0->config.receive_minimum.number (), send2->link ().as_account ()));
-	rpc_ctx.io_scope->renew ();
 	// Test filter for send state blocks
 	ASSERT_NE (nullptr, receive2);
 	{
@@ -1358,7 +1166,11 @@ TEST (rpc, history_pruning)
 	nano::node_flags node_flags;
 	node_flags.enable_pruning = true;
 	auto node0 = add_ipc_enabled_node (system, node_config, node_flags);
+	std::vector<std::shared_ptr<nano::block>> blocks;
+
 	nano::block_builder builder;
+
+	// noop change block
 	auto change = builder
 				  .change ()
 				  .previous (nano::dev::genesis->hash ())
@@ -1366,7 +1178,9 @@ TEST (rpc, history_pruning)
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*node0->work.generate (nano::dev::genesis->hash ()))
 				  .build_shared ();
-	node0->process_active (change);
+	blocks.push_back (change);
+
+	// legacy send to itself
 	auto send = builder
 				.send ()
 				.previous (change->hash ())
@@ -1375,7 +1189,9 @@ TEST (rpc, history_pruning)
 				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				.work (*node0->work.generate (change->hash ()))
 				.build_shared ();
-	node0->process_active (send);
+	blocks.push_back (send);
+
+	// legacy receive the legacy self send
 	auto receive = builder
 				   .receive ()
 				   .previous (send->hash ())
@@ -1383,7 +1199,9 @@ TEST (rpc, history_pruning)
 				   .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				   .work (*node0->work.generate (send->hash ()))
 				   .build_shared ();
-	node0->process_active (receive);
+	blocks.push_back (receive);
+
+	// non legacy self send
 	auto usend = builder
 				 .state ()
 				 .account (nano::dev::genesis->account ())
@@ -1394,6 +1212,9 @@ TEST (rpc, history_pruning)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*node0->work_generate_blocking (receive->hash ()))
 				 .build_shared ();
+	blocks.push_back (usend);
+
+	// non legacy receive of the non legacy self send
 	auto ureceive = builder
 					.state ()
 					.account (nano::dev::genesis->account ())
@@ -1404,6 +1225,9 @@ TEST (rpc, history_pruning)
 					.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					.work (*node0->work_generate_blocking (usend->hash ()))
 					.build_shared ();
+	blocks.push_back (ureceive);
+
+	// change genesis to a random rep
 	auto uchange = builder
 				   .state ()
 				   .account (nano::dev::genesis->account ())
@@ -1414,127 +1238,87 @@ TEST (rpc, history_pruning)
 				   .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				   .work (*node0->work_generate_blocking (ureceive->hash ()))
 				   .build_shared ();
-	node0->process_active (usend);
-	node0->process_active (ureceive);
-	node0->process_active (uchange);
-	node0->block_processor.flush ();
+	blocks.push_back (uchange);
+
+	nano::test::process_live (*node0, blocks);
+	ASSERT_TIMELY (5s, nano::test::exists (*node0, blocks));
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	// Confirm last block to prune previous
-	{
-		auto election = node0->active.election (change->qualified_root ());
-		ASSERT_NE (nullptr, election);
-		election->force_confirm ();
-	}
-	ASSERT_TIMELY (2s, node0->block_confirmed (change->hash ()) && node0->active.active (send->qualified_root ()));
-	{
-		auto election = node0->active.election (send->qualified_root ());
-		ASSERT_NE (nullptr, election);
-		election->force_confirm ();
-	}
-	ASSERT_TIMELY (2s, node0->block_confirmed (send->hash ()) && node0->active.active (receive->qualified_root ()));
-	{
-		auto election = node0->active.election (receive->qualified_root ());
-		ASSERT_NE (nullptr, election);
-		election->force_confirm ();
-	}
-	ASSERT_TIMELY (2s, node0->block_confirmed (receive->hash ()) && node0->active.active (usend->qualified_root ()));
-	{
-		auto election = node0->active.election (usend->qualified_root ());
-		ASSERT_NE (nullptr, election);
-		election->force_confirm ();
-	}
-	ASSERT_TIMELY (2s, node0->block_confirmed (usend->hash ()) && node0->active.active (ureceive->qualified_root ()));
-	{
-		auto election = node0->active.election (ureceive->qualified_root ());
-		ASSERT_NE (nullptr, election);
-		election->force_confirm ();
-	}
-	ASSERT_TIMELY (2s, node0->block_confirmed (ureceive->hash ()) && node0->active.active (uchange->qualified_root ()));
-	{
-		auto election = node0->active.election (uchange->qualified_root ());
-		ASSERT_NE (nullptr, election);
-		election->force_confirm ();
-	}
-	ASSERT_TIMELY (2s, node0->active.empty () && node0->block_confirmed (uchange->hash ()));
-	ASSERT_TIMELY (2s, node0->ledger.cache.cemented_count == 7 && node0->confirmation_height_processor.current ().is_zero () && node0->confirmation_height_processor.awaiting_processing_size () == 0);
-	// Pruning action
+
+	// WORKAROUND: this is called repeatedly inside an assert timely because nano::test::confirm()
+	// uses block_processor.flush internally which can fail to flush
+	ASSERT_TIMELY (5s, nano::test::confirm (*node0, blocks));
+
+	ASSERT_TIMELY (5s, node0->block_confirmed (uchange->hash ()));
+	nano::confirmation_height_info confirmation_height_info;
+	node0->store.confirmation_height.get (node0->store.tx_begin_read (), nano::dev::genesis_key.pub, confirmation_height_info);
+	ASSERT_EQ (7, confirmation_height_info.height);
+
+	// Prune block "change"
 	{
 		auto transaction (node0->store.tx_begin_write ());
 		ASSERT_EQ (1, node0->ledger.pruning_action (transaction, change->hash (), 1));
 	}
+
 	auto const rpc_ctx = add_rpc (system, node0);
 	boost::property_tree::ptree request;
 	request.put ("action", "history");
 	request.put ("hash", send->hash ().to_string ());
 	request.put ("count", 100);
-	auto response (wait_response (system, rpc_ctx, request));
-	std::vector<std::tuple<std::string, std::string, std::string, std::string>> history_l;
-	auto & history_node (response.get_child ("history"));
-	for (auto i (history_node.begin ()), n (history_node.end ()); i != n; ++i)
+	auto response = wait_response (system, rpc_ctx, request);
+	auto history_node = response.get_child ("history");
+	ASSERT_EQ (history_node.size (), 1);
+	auto entry = (*history_node.begin ()).second;
+	ASSERT_EQ ("send", entry.get<std::string> ("type"));
+	ASSERT_EQ (nano::dev::genesis_key.pub.to_account (), entry.get<std::string> ("account", "N/A"));
+	ASSERT_EQ ("N/A", entry.get<std::string> ("amount", "N/A"));
+	ASSERT_EQ (send->hash ().to_string (), entry.get<std::string> ("hash"));
+
+	// Prune block "send"
 	{
-		history_l.push_back (std::make_tuple (i->second.get<std::string> ("type"), i->second.get<std::string> ("account", "-1"), i->second.get<std::string> ("amount", "-1"), i->second.get<std::string> ("hash")));
-		boost::optional<std::string> amount (i->second.get_optional<std::string> ("amount"));
-		ASSERT_FALSE (amount.is_initialized ()); // Cannot calculate amount
-	}
-	ASSERT_EQ (1, history_l.size ());
-	ASSERT_EQ ("send", std::get<0> (history_l[0]));
-	ASSERT_EQ (nano::dev::genesis_key.pub.to_account (), std::get<1> (history_l[0]));
-	ASSERT_EQ ("-1", std::get<2> (history_l[0]));
-	ASSERT_EQ (send->hash ().to_string (), std::get<3> (history_l[0]));
-	// Pruning action
-	{
-		rpc_ctx.io_scope->reset ();
 		auto transaction (node0->store.tx_begin_write ());
 		ASSERT_EQ (1, node0->ledger.pruning_action (transaction, send->hash (), 1));
-		rpc_ctx.io_scope->renew ();
 	}
+
 	boost::property_tree::ptree request2;
 	request2.put ("action", "history");
 	request2.put ("hash", receive->hash ().to_string ());
 	request2.put ("count", 100);
-	auto response2 (wait_response (system, rpc_ctx, request2));
-	history_l.clear ();
-	auto & history_node2 (response2.get_child ("history"));
-	for (auto i (history_node2.begin ()), n (history_node2.end ()); i != n; ++i)
+	response = wait_response (system, rpc_ctx, request2);
+	history_node = response.get_child ("history");
+	ASSERT_EQ (history_node.size (), 1);
+	entry = (*history_node.begin ()).second;
+	ASSERT_EQ ("receive", entry.get<std::string> ("type"));
+	ASSERT_EQ ("N/A", entry.get<std::string> ("account", "N/A"));
+	ASSERT_EQ ("N/A", entry.get<std::string> ("amount", "N/A"));
+	ASSERT_EQ (receive->hash ().to_string (), entry.get<std::string> ("hash"));
+
+	// Prune block "receive"
 	{
-		history_l.push_back (std::make_tuple (i->second.get<std::string> ("type"), i->second.get<std::string> ("account", "-1"), i->second.get<std::string> ("amount", "-1"), i->second.get<std::string> ("hash")));
-		boost::optional<std::string> amount (i->second.get_optional<std::string> ("amount"));
-		ASSERT_FALSE (amount.is_initialized ()); // Cannot calculate amount
-		boost::optional<std::string> account (i->second.get_optional<std::string> ("account"));
-		ASSERT_FALSE (account.is_initialized ()); // Cannot find source account
-	}
-	ASSERT_EQ (1, history_l.size ());
-	ASSERT_EQ ("receive", std::get<0> (history_l[0]));
-	ASSERT_EQ ("-1", std::get<1> (history_l[0]));
-	ASSERT_EQ ("-1", std::get<2> (history_l[0]));
-	ASSERT_EQ (receive->hash ().to_string (), std::get<3> (history_l[0]));
-	// Pruning action
-	{
-		rpc_ctx.io_scope->reset ();
 		auto transaction (node0->store.tx_begin_write ());
 		ASSERT_EQ (1, node0->ledger.pruning_action (transaction, receive->hash (), 1));
-		rpc_ctx.io_scope->renew ();
 	}
+
 	boost::property_tree::ptree request3;
 	request3.put ("action", "history");
 	request3.put ("hash", uchange->hash ().to_string ());
 	request3.put ("count", 100);
-	auto response3 (wait_response (system, rpc_ctx, request3));
-	history_l.clear ();
-	auto & history_node3 (response3.get_child ("history"));
-	for (auto i (history_node3.begin ()), n (history_node3.end ()); i != n; ++i)
-	{
-		history_l.push_back (std::make_tuple (i->second.get<std::string> ("type"), i->second.get<std::string> ("account", "-1"), i->second.get<std::string> ("amount", "-1"), i->second.get<std::string> ("hash")));
-	}
-	ASSERT_EQ (2, history_l.size ());
-	ASSERT_EQ ("receive", std::get<0> (history_l[0]));
-	ASSERT_EQ (ureceive->hash ().to_string (), std::get<3> (history_l[0]));
-	ASSERT_EQ (nano::dev::genesis_key.pub.to_account (), std::get<1> (history_l[0]));
-	ASSERT_EQ (nano::MBAN_ratio.convert_to<std::string> (), std::get<2> (history_l[0]));
-	ASSERT_EQ ("unknown", std::get<0> (history_l[1]));
-	ASSERT_EQ ("-1", std::get<1> (history_l[1]));
-	ASSERT_EQ ("-1", std::get<2> (history_l[1]));
-	ASSERT_EQ (usend->hash ().to_string (), std::get<3> (history_l[1]));
+	response = wait_response (system, rpc_ctx, request3);
+	history_node = response.get_child ("history");
+	ASSERT_EQ (history_node.size (), 2);
+
+	// first array element
+	entry = (*history_node.begin ()).second;
+	ASSERT_EQ ("receive", entry.get<std::string> ("type"));
+	ASSERT_EQ (ureceive->hash ().to_string (), entry.get<std::string> ("hash"));
+	ASSERT_EQ (nano::dev::genesis_key.pub.to_account (), entry.get<std::string> ("account", "N/A"));
+	ASSERT_EQ (nano::MBAN_ratio.convert_to<std::string> (), entry.get<std::string> ("amount", "N/A"));
+
+	// second array element
+	entry = (*(++history_node.begin ())).second;
+	ASSERT_EQ ("unknown", entry.get<std::string> ("type"));
+	ASSERT_EQ ("N/A", entry.get<std::string> ("account", "N/A"));
+	ASSERT_EQ ("N/A", entry.get<std::string> ("amount", "N/A"));
+	ASSERT_EQ (usend->hash ().to_string (), entry.get<std::string> ("hash"));
 }
 
 TEST (rpc, process_block)
@@ -1945,336 +1729,6 @@ TEST (rpc, peers_node_id)
 	// The previous version of this test had an UDP connection to an arbitrary IP address, so it could check for two peers. This doesn't work with TCP.
 }
 
-TEST (rpc, pending)
-{
-	nano::test::system system;
-	auto node = add_ipc_enabled_node (system);
-	nano::keypair key1;
-	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	auto block1 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 100));
-	node->scheduler.flush ();
-	ASSERT_TIMELY (5s, !node->active.active (*block1));
-	ASSERT_TIMELY (5s, node->ledger.cache.cemented_count == 2 && node->confirmation_height_processor.current ().is_zero () && node->confirmation_height_processor.awaiting_processing_size () == 0);
-	auto const rpc_ctx = add_rpc (system, node);
-	boost::property_tree::ptree request;
-	request.put ("action", "pending");
-	request.put ("account", key1.pub.to_account ());
-	request.put ("count", "100");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (1, blocks_node.size ());
-		nano::block_hash hash (blocks_node.begin ()->second.get<std::string> (""));
-		ASSERT_EQ (block1->hash (), hash);
-	}
-	request.put ("sorting", "true"); // Sorting test
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (1, blocks_node.size ());
-		nano::block_hash hash (blocks_node.begin ()->first);
-		ASSERT_EQ (block1->hash (), hash);
-		std::string amount (blocks_node.begin ()->second.get<std::string> (""));
-		ASSERT_EQ ("100", amount);
-	}
-	request.put ("threshold", "100"); // Threshold test
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (1, blocks_node.size ());
-		std::unordered_map<nano::block_hash, nano::uint128_union> blocks;
-		for (auto i (blocks_node.begin ()), j (blocks_node.end ()); i != j; ++i)
-		{
-			nano::block_hash hash;
-			hash.decode_hex (i->first);
-			nano::uint128_union amount;
-			amount.decode_dec (i->second.get<std::string> (""));
-			blocks[hash] = amount;
-			boost::optional<std::string> source (i->second.get_optional<std::string> ("source"));
-			ASSERT_FALSE (source.is_initialized ());
-			boost::optional<uint8_t> min_version (i->second.get_optional<uint8_t> ("min_version"));
-			ASSERT_FALSE (min_version.is_initialized ());
-		}
-		ASSERT_EQ (blocks[block1->hash ()], 100);
-	}
-	request.put ("threshold", "101");
-	{
-		auto response (wait_response (system, rpc_ctx, request, 10s));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (0, blocks_node.size ());
-	}
-	request.put ("threshold", "0");
-	request.put ("source", "true");
-	request.put ("min_version", "true");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (1, blocks_node.size ());
-		std::unordered_map<nano::block_hash, nano::uint128_union> amounts;
-		std::unordered_map<nano::block_hash, nano::account> sources;
-		for (auto i (blocks_node.begin ()), j (blocks_node.end ()); i != j; ++i)
-		{
-			nano::block_hash hash;
-			hash.decode_hex (i->first);
-			amounts[hash].decode_dec (i->second.get<std::string> ("amount"));
-			sources[hash].decode_account (i->second.get<std::string> ("source"));
-			ASSERT_EQ (i->second.get<uint8_t> ("min_version"), 0);
-		}
-		ASSERT_EQ (amounts[block1->hash ()], 100);
-		ASSERT_EQ (sources[block1->hash ()], nano::dev::genesis_key.pub);
-	}
-
-	request.put ("account", key1.pub.to_account ());
-	request.put ("source", "false");
-	request.put ("min_version", "false");
-
-	auto check_block_response_count_l = [&system, &request, &rpc_ctx] (size_t size) {
-		auto response (wait_response (system, rpc_ctx, request));
-		ASSERT_EQ (size, response.get_child ("blocks").size ());
-	};
-
-	check_block_response_count_l (1);
-	rpc_ctx.io_scope->reset ();
-	reset_confirmation_height (system.nodes.front ()->store, block1->account ());
-	rpc_ctx.io_scope->renew ();
-	check_block_response_count_l (0);
-	request.put ("include_only_confirmed", "false");
-	rpc_ctx.io_scope->renew ();
-	check_block_response_count_l (1);
-	request.put ("include_only_confirmed", "true");
-
-	// Sorting with a smaller count than total should give absolute sorted amounts
-	rpc_ctx.io_scope->reset ();
-	node->store.confirmation_height.put (node->store.tx_begin_write (), nano::dev::genesis_key.pub, { 2, block1->hash () });
-	auto block2 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 200));
-	auto block3 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 300));
-	auto block4 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 400));
-	rpc_ctx.io_scope->renew ();
-
-	ASSERT_TIMELY (10s, node->ledger.account_receivable (node->store.tx_begin_read (), key1.pub) == 1000);
-	ASSERT_TIMELY (5s, !node->active.active (*block4));
-	ASSERT_TIMELY (5s, node->block_confirmed (block4->hash ()));
-
-	request.put ("count", "2");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (2, blocks_node.size ());
-		nano::block_hash hash (blocks_node.begin ()->first);
-		nano::block_hash hash1 ((++blocks_node.begin ())->first);
-		ASSERT_EQ (block4->hash (), hash);
-		ASSERT_EQ (block3->hash (), hash1);
-	}
-}
-
-/**
- * This test case tests the receivable RPC command when used with offsets and sorting.
- */
-TEST (rpc, receivable_offset_and_sorting)
-{
-	nano::test::system system;
-	auto node = add_ipc_enabled_node (system);
-	nano::keypair key1;
-	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-
-	auto block1 = system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 200);
-	auto block2 = system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 100);
-	auto block3 = system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 400);
-	auto block4 = system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 300);
-	auto block5 = system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 300);
-	auto block6 = system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 300);
-
-	// check that all blocks got confirmed
-	ASSERT_TIMELY (5s, node->ledger.account_receivable (node->store.tx_begin_read (), key1.pub, true) == 1600);
-
-	// check confirmation height is as expected, there is no perfect clarity yet when confirmation height updates after a block get confirmed
-	nano::confirmation_height_info confirmation_height_info;
-	ASSERT_FALSE (node->store.confirmation_height.get (node->store.tx_begin_read (), nano::dev::genesis->account (), confirmation_height_info));
-	ASSERT_EQ (confirmation_height_info.height, 7);
-	ASSERT_EQ (confirmation_height_info.frontier, block6->hash ());
-
-	// returns true if hash is found in node
-	// if match_first is set then the function looks for key (first item)
-	// if match_first is not set then the function looks for value (second item)
-	auto hash_exists = [] (boost::property_tree::ptree & node, bool match_first, nano::block_hash hash) {
-		std::stringstream ss;
-		boost::property_tree::json_parser::write_json (ss, node);
-		for (auto itr = node.begin (); itr != node.end (); ++itr)
-		{
-			std::string possible_match = match_first ? itr->first : itr->second.get<std::string> ("");
-			if (possible_match == hash.to_string ())
-			{
-				return true;
-			}
-		}
-		return false;
-	};
-
-	auto const rpc_ctx = add_rpc (system, node);
-	boost::property_tree::ptree request;
-	request.put ("action", "receivable");
-	request.put ("account", key1.pub.to_account ());
-
-	request.put ("offset", "0");
-	request.put ("sorting", "false");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (6, blocks_node.size ());
-
-		// check that all 6 blocks are listed, the order does not matter
-		ASSERT_TRUE (hash_exists (blocks_node, false, block1->hash ()));
-		ASSERT_TRUE (hash_exists (blocks_node, false, block2->hash ()));
-		ASSERT_TRUE (hash_exists (blocks_node, false, block3->hash ()));
-		ASSERT_TRUE (hash_exists (blocks_node, false, block4->hash ()));
-		ASSERT_TRUE (hash_exists (blocks_node, false, block5->hash ()));
-		ASSERT_TRUE (hash_exists (blocks_node, false, block6->hash ()));
-	}
-
-	request.put ("offset", "4");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		// since we haven't asked for sorted, we can't be sure which 2 blocks will be returned
-		ASSERT_EQ (2, blocks_node.size ());
-	}
-
-	request.put ("count", "2");
-	request.put ("offset", "2");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		// since we haven't asked for sorted, we can't be sure which 2 blocks will be returned
-		ASSERT_EQ (2, blocks_node.size ());
-	}
-
-	// Sort by amount from here onwards, this is a sticky setting that applies for the rest of the test case
-	request.put ("sorting", "true");
-
-	request.put ("count", "5");
-	request.put ("offset", "0");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (5, blocks_node.size ());
-
-		// the first block should be block3 with amount 400
-		auto itr = blocks_node.begin ();
-		ASSERT_EQ (block3->hash (), nano::block_hash{ itr->first });
-		ASSERT_EQ ("400", itr->second.get<std::string> (""));
-
-		// the next 3 block will be of amount 300 but in unspecified order
-		++itr;
-		ASSERT_EQ ("300", itr->second.get<std::string> (""));
-
-		++itr;
-		ASSERT_EQ ("300", itr->second.get<std::string> (""));
-
-		++itr;
-		ASSERT_EQ ("300", itr->second.get<std::string> (""));
-
-		// the last one will be block1 with amount 200
-		++itr;
-		ASSERT_EQ (block1->hash (), nano::block_hash{ itr->first });
-		ASSERT_EQ ("200", itr->second.get<std::string> (""));
-
-		// check that the blocks returned with 300 amounts have the right hashes
-		ASSERT_TRUE (hash_exists (blocks_node, true, block4->hash ()));
-		ASSERT_TRUE (hash_exists (blocks_node, true, block5->hash ()));
-		ASSERT_TRUE (hash_exists (blocks_node, true, block6->hash ()));
-	}
-
-	request.put ("count", "3");
-	request.put ("offset", "3");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (3, blocks_node.size ());
-
-		auto itr = blocks_node.begin ();
-		ASSERT_EQ ("300", itr->second.get<std::string> (""));
-
-		++itr;
-		ASSERT_EQ (block1->hash (), nano::block_hash{ itr->first });
-		ASSERT_EQ ("200", itr->second.get<std::string> (""));
-
-		++itr;
-		ASSERT_EQ (block2->hash (), nano::block_hash{ itr->first });
-		ASSERT_EQ ("100", itr->second.get<std::string> (""));
-	}
-
-	request.put ("source", "true");
-	request.put ("min_version", "true");
-	request.put ("count", "3");
-	request.put ("offset", "2");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (3, blocks_node.size ());
-
-		auto itr = blocks_node.begin ();
-		ASSERT_EQ ("300", itr->second.get<std::string> ("amount"));
-
-		++itr;
-		ASSERT_EQ ("300", itr->second.get<std::string> ("amount"));
-
-		++itr;
-		ASSERT_EQ (block1->hash (), nano::block_hash{ itr->first });
-		ASSERT_EQ ("200", itr->second.get<std::string> ("amount"));
-	}
-}
-
-TEST (rpc, pending_burn)
-{
-	nano::test::system system;
-	auto node = add_ipc_enabled_node (system);
-	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	auto block1 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, nano::dev::constants.burn_account, 100));
-	auto const rpc_ctx = add_rpc (system, node);
-	node->scheduler.flush ();
-	ASSERT_TIMELY (5s, !node->active.active (*block1));
-	ASSERT_TIMELY (5s, node->ledger.cache.cemented_count == 2 && node->confirmation_height_processor.current ().is_zero () && node->confirmation_height_processor.awaiting_processing_size () == 0);
-	boost::property_tree::ptree request;
-	request.put ("action", "pending");
-	request.put ("account", nano::dev::constants.burn_account.to_account ());
-	request.put ("count", "100");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		auto & blocks_node (response.get_child ("blocks"));
-		ASSERT_EQ (1, blocks_node.size ());
-		nano::block_hash hash (blocks_node.begin ()->second.get<std::string> (""));
-		ASSERT_EQ (block1->hash (), hash);
-	}
-}
-
-TEST (rpc, search_receivable)
-{
-	nano::test::system system;
-	auto node = add_ipc_enabled_node (system);
-	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	auto wallet (node->wallets.items.begin ()->first.to_string ());
-	auto latest (node->latest (nano::dev::genesis_key.pub));
-	nano::block_builder builder;
-	auto block = builder
-				 .send ()
-				 .previous (latest)
-				 .destination (nano::dev::genesis_key.pub)
-				 .balance (nano::dev::constants.genesis_amount - node->config.receive_minimum.number ())
-				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-				 .work (*node->work_generate_blocking (latest))
-				 .build ();
-	{
-		auto transaction (node->store.tx_begin_write ());
-		ASSERT_EQ (nano::process_result::progress, node->ledger.process (transaction, *block).code);
-	}
-	auto const rpc_ctx = add_rpc (system, node);
-	boost::property_tree::ptree request;
-	request.put ("action", "search_receivable");
-	request.put ("wallet", wallet);
-	auto response (wait_response (system, rpc_ctx, request));
-	ASSERT_TIMELY (10s, node->balance (nano::dev::genesis_key.pub) == nano::dev::constants.genesis_amount);
-}
-
 TEST (rpc, version)
 {
 	nano::test::system system;
@@ -2291,7 +1745,7 @@ TEST (rpc, version)
 		ASSERT_EQ (std::to_string (node1->store.version.get (transaction)), response1.json.get<std::string> ("store_version"));
 	}
 	ASSERT_EQ (std::to_string (node1->network_params.network.protocol_version), response1.json.get<std::string> ("protocol_version"));
-	ASSERT_EQ (boost::str (boost::format ("Banano %1%") % NANO_VERSION_STRING), response1.json.get<std::string> ("node_vendor"));
+	ASSERT_EQ (boost::str (boost::format ("Nano %1%") % NANO_VERSION_STRING), response1.json.get<std::string> ("node_vendor"));
 	ASSERT_EQ (node1->store.vendor_get (), response1.json.get<std::string> ("store_vendor"));
 	auto network_label (node1->network_params.network.get_current_network_as_string ());
 	ASSERT_EQ (network_label, response1.json.get<std::string> ("network"));
@@ -2780,9 +2234,8 @@ TEST (rpc, block_count_pruning)
 					.work (*node1->work_generate_blocking (send1->hash ()))
 					.build_shared ();
 	node1->process_active (receive1);
-	node1->block_processor.flush ();
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	ASSERT_TIMELY (5s, node1->ledger.cache.cemented_count == 3 && node1->confirmation_height_processor.current ().is_zero () && node1->confirmation_height_processor.awaiting_processing_size () == 0);
+	ASSERT_TIMELY (5s, node1->block_confirmed (receive1->hash ()));
 	// Pruning action
 	{
 		auto transaction (node1->store.tx_begin_write ());
@@ -2832,33 +2285,29 @@ TEST (rpc, available_supply)
 	request1.put ("action", "available_supply");
 	auto response1 (wait_response (system, rpc_ctx, request1));
 	ASSERT_EQ ("0", response1.get<std::string> ("available"));
-	rpc_ctx.io_scope->reset ();
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
 	nano::keypair key;
 	auto block (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key.pub, 1));
-	rpc_ctx.io_scope->renew ();
 	auto response2 (wait_response (system, rpc_ctx, request1));
 	ASSERT_EQ ("1", response2.get<std::string> ("available"));
-	rpc_ctx.io_scope->reset ();
 	auto block2 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, 0, 100)); // Sending to burning 0 account
-	rpc_ctx.io_scope->renew ();
 	auto response3 (wait_response (system, rpc_ctx, request1, 10s));
 	ASSERT_EQ ("1", response3.get<std::string> ("available"));
 }
 
-TEST (rpc, ban_to_raw)
+TEST (rpc, mrai_to_raw)
 {
 	nano::test::system system;
 	auto node1 = add_ipc_enabled_node (system);
 	auto const rpc_ctx = add_rpc (system, node1);
 	boost::property_tree::ptree request1;
-	request1.put ("action", "ban_to_raw");
+	request1.put ("action", "mrai_to_raw");
 	request1.put ("amount", "1");
 	auto response1 (wait_response (system, rpc_ctx, request1));
 	ASSERT_EQ (nano::BAN_ratio.convert_to<std::string> (), response1.get<std::string> ("amount"));
 }
 
-TEST (rpc, ban_from_raw)
+TEST (rpc, mrai_from_raw)
 {
 	nano::test::system system;
 	auto node1 = add_ipc_enabled_node (system);
@@ -2870,19 +2319,19 @@ TEST (rpc, ban_from_raw)
 	ASSERT_EQ ("1", response1.get<std::string> ("amount"));
 }
 
-TEST (rpc, banoshi_to_raw)
+TEST (rpc, krai_to_raw)
 {
 	nano::test::system system;
 	auto node1 = add_ipc_enabled_node (system);
 	auto const rpc_ctx = add_rpc (system, node1);
 	boost::property_tree::ptree request1;
-	request1.put ("action", "banoshi_to_raw");
+	request1.put ("action", "krai_to_raw");
 	request1.put ("amount", "1");
 	auto response1 (wait_response (system, rpc_ctx, request1));
 	ASSERT_EQ (nano::banoshi_ratio.convert_to<std::string> (), response1.get<std::string> ("amount"));
 }
 
-TEST (rpc, banoshi_from_raw)
+TEST (rpc, krai_from_raw)
 {
 	nano::test::system system;
 	auto node1 = add_ipc_enabled_node (system);
@@ -3267,9 +2716,7 @@ TEST (rpc, work_validate_epoch_2)
 		ASSERT_NEAR (multiplier, nano::difficulty::to_multiplier (difficulty, node->network_params.work.epoch_2), 1e-6);
 	};
 	// After upgrading, the higher difficulty is used to validate and calculate the multiplier
-	rpc_ctx.io_scope->reset ();
 	ASSERT_NE (nullptr, system.upgrade_genesis_epoch (*node, nano::epoch::epoch_2));
-	rpc_ctx.io_scope->renew ();
 	{
 		auto response (wait_response (system, rpc_ctx, request));
 		ASSERT_EQ (0, response.count ("valid"));
@@ -3455,17 +2902,11 @@ TEST (rpc, accounts_balances)
 	entry1.put ("", nano::dev::genesis_key.pub.to_account ());
 	accounts_l.push_back (std::make_pair ("", entry1));
 
-	// Adds a bad account number for getting an error response.
+	// Adds a valid account string that isn't on the ledger for getting an error response.
 	boost::property_tree::ptree entry2;
-	auto const bad_account_number = "nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1";
-	entry2.put ("", bad_account_number);
-	accounts_l.push_back (std::make_pair ("", entry2));
-
-	// Adds a valid account that isn't on the ledger for getting an error response.
-	boost::property_tree::ptree entry3;
 	auto const account_not_found = "nano_1os6txqxyuesnxrtshnfb5or1hesc1647wpk9rsr84pmki6eairwha79hk3j";
-	entry3.put ("", account_not_found);
-	accounts_l.push_back (std::make_pair ("", entry3));
+	entry2.put ("", account_not_found);
+	accounts_l.push_back (std::make_pair ("", entry2));
 
 	request.add_child ("accounts", accounts_l);
 	auto response (wait_response (system, rpc_ctx, request));
@@ -3477,20 +2918,117 @@ TEST (rpc, accounts_balances)
 	auto receivable_text = genesis_entry.get<std::string> ("receivable");
 	ASSERT_EQ ("0", receivable_text);
 
+	// Checking the account not found response - we do not distinguish between account not found and zero balance, zero receivables
+	auto account_not_found_entry = response.get_child (boost::str (boost::format ("balances.%1%") % account_not_found));
+	auto account_balance_text = account_not_found_entry.get<std::string> ("balance");
+	ASSERT_EQ ("0", account_balance_text);
+	auto account_receivable_text = account_not_found_entry.get<std::string> ("receivable");
+	ASSERT_EQ ("0", account_receivable_text);
+
+	auto balances = response.get_child ("balances");
+	ASSERT_EQ (2, balances.size ());
+
+	auto errors = response.get_child_optional ("errors");
+	ASSERT_FALSE (errors.has_value ());
+}
+
+/**
+ * Test the RPC accounts_balances with 3 accounts, one good one, one with an invalid account ID and one with
+ * an account that does not exist.
+ */
+TEST (rpc, accounts_balances_with_errors)
+{
+	nano::test::system system;
+	auto node = add_ipc_enabled_node (system);
+	auto const rpc_ctx = add_rpc (system, node);
+	boost::property_tree::ptree request;
+	request.put ("action", "accounts_balances");
+	boost::property_tree::ptree accounts_l;
+
+	// Adds a bad account string for getting an error response (the nano_ address checksum is wrong)
+	boost::property_tree::ptree entry;
+	auto const bad_account_number = "nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1";
+	entry.put ("", bad_account_number);
+	accounts_l.push_back (std::make_pair ("", entry));
+
+	request.add_child ("accounts", accounts_l);
+	auto response (wait_response (system, rpc_ctx, request));
+
+	auto balances = response.get_child_optional ("balances");
+	ASSERT_FALSE (balances.has_value ());
+
 	auto get_error_message = [] (nano::error_common error_common) -> std::string {
 		std::error_code ec = error_common;
 		return ec.message ();
 	};
 
-	// Checking the account not found response
-	auto account_not_found_entry = response.get_child (boost::str (boost::format ("balances.%1%") % account_not_found));
-	auto error_text1 = account_not_found_entry.get<std::string> ("error");
-	ASSERT_EQ (get_error_message (nano::error_common::account_not_found), error_text1);
-
 	// Checking the bad account number response
-	auto bad_account_number_entry = response.get_child (boost::str (boost::format ("balances.%1%") % bad_account_number));
-	auto error_text2 = bad_account_number_entry.get<std::string> ("error");
-	ASSERT_EQ (get_error_message (nano::error_common::bad_account_number), error_text2);
+	auto errors = response.get_child ("errors");
+	ASSERT_EQ (1, errors.size ());
+	ASSERT_EQ (1, errors.count (bad_account_number));
+	auto bad_account_number_error_text = errors.get<std::string> (bad_account_number);
+	ASSERT_EQ (get_error_message (nano::error_common::bad_account_number), bad_account_number_error_text);
+}
+
+/**
+ * Test the case where an account has no blocks at all (unopened) but has receivables
+ * In other words, sending to an a unopened account without receiving the funds
+ * It also checks the operation of the include_only_confirmed flag
+ */
+TEST (rpc, accounts_balances_unopened_account_with_receivables)
+{
+	nano::test::system system;
+	nano::node_config config;
+	config.backlog_scan_batch_size = 0;
+	auto node = add_ipc_enabled_node (system, config);
+
+	// send a 1 raw to the unopened account which will have receivables
+	nano::keypair unopened_account;
+	auto send = nano::state_block_builder{}
+				.account (nano::dev::genesis_key.pub)
+				.previous (nano::dev::genesis->hash ())
+				.representative (nano::dev::genesis_key.pub)
+				.balance (nano::dev::constants.genesis_amount - 1)
+				.link (unopened_account.pub)
+				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
+				.work (*node->work_generate_blocking (nano::dev::genesis->hash ()))
+				.build_shared ();
+	{
+		auto transaction = node->store.tx_begin_write ();
+		ASSERT_EQ (nano::process_result::progress, node->ledger.process (transaction, *send).code);
+	}
+	ASSERT_TIMELY (5s, node->block (send->hash ()));
+	ASSERT_TIMELY (5s, !node->active.active (*send));
+
+	// create and send the rpc request for the unopened account and wait for the response
+	auto const rpc_ctx = add_rpc (system, node);
+	boost::property_tree::ptree request;
+	boost::property_tree::ptree accounts_l;
+	boost::property_tree::ptree entry;
+	entry.put ("", unopened_account.pub.to_account ());
+	accounts_l.push_back (std::make_pair ("", entry));
+	request.add_child ("accounts", accounts_l);
+	request.put ("action", "accounts_balances");
+
+	// Check confirmed receivable amount
+	auto response = wait_response (system, rpc_ctx, request);
+	auto response_entry = response.get_child ("balances." + unopened_account.pub.to_account ());
+	ASSERT_EQ ("0", response_entry.get<std::string> ("balance"));
+	ASSERT_EQ ("0", response_entry.get<std::string> ("receivable"));
+
+	// check unconfirmed receivable amount
+	request.put ("include_only_confirmed", "false");
+	response = wait_response (system, rpc_ctx, request);
+	response_entry = response.get_child ("balances." + unopened_account.pub.to_account ());
+	ASSERT_EQ ("0", response_entry.get<std::string> ("balance"));
+	ASSERT_EQ ("1", response_entry.get<std::string> ("receivable"));
+
+	// check confirmed receivable amount by explicitly setting include_only_confirmed
+	request.put ("include_only_confirmed", "true");
+	response = wait_response (system, rpc_ctx, request);
+	response_entry = response.get_child ("balances." + unopened_account.pub.to_account ());
+	ASSERT_EQ ("0", response_entry.get<std::string> ("balance"));
+	ASSERT_EQ ("0", response_entry.get<std::string> ("receivable"));
 }
 
 // Tests the  happy path of retrieving an account's representative
@@ -3511,12 +3049,14 @@ TEST (rpc, accounts_representatives)
 	// Ensures the response is correct.
 	auto response_representative (response.get_child ("representatives").get<std::string> (nano::dev::genesis->account ().to_account ()));
 	ASSERT_EQ (response_representative, nano::dev::genesis->account ().to_account ());
+
+	ASSERT_EQ (response.count ("errors"), 0);
 }
 
 /**
  * Test the RPC accounts_frontiers with 3 accounts, one good one, one with an invalid account ID and one with an account that does not exist.
  */
-TEST (rpc, accounts_representatives_per_account_result_with_errors)
+TEST (rpc, accounts_representatives_with_errors)
 {
 	nano::test::system system;
 	auto node = add_ipc_enabled_node (system);
@@ -3532,38 +3072,31 @@ TEST (rpc, accounts_representatives_per_account_result_with_errors)
 
 	// Adds an invalid account, malformed number with a wrong checksum.
 	// Got with this formula: key1.substr(0, 40) + key2.substr(40, key2.size()).
-	auto const invalid_key = "nano_36uccgpjzhjsdbj44wm1y5hyz8gefx3wjpp1jircxt84nopxkxti5bzq1rnz";
-	entry2.put ("", invalid_key);
+	auto const bad_account_number = "nano_36uccgpjzhjsdbj44wm1y5hyz8gefx3wjpp1jircxt84nopxkxti5bzq1rnz";
+	entry2.put ("", bad_account_number);
 	accounts_l.push_back (std::make_pair ("", entry2));
 
-	// Adds a valid key but that isn't on the ledger. It wont'be found.
-	auto const valid_key = "nano_1hrts7hcoozxccnffoq9hqhngnn9jz783usapejm57ejtqcyz9dpso1bibuy";
-	entry3.put ("", valid_key);
+	// Adds a valid key but that isn't on the ledger. It won't be found.
+	auto const account_not_found = "nano_1hrts7hcoozxccnffoq9hqhngnn9jz783usapejm57ejtqcyz9dpso1bibuy";
+	entry3.put ("", account_not_found);
 	accounts_l.push_back (std::make_pair ("", entry3));
 
 	// Packs all the account entries.
 	request.add_child ("accounts", accounts_l);
 	auto response (wait_response (system, rpc_ctx, request));
 
-	auto get_error_message = [] (nano::error_common error_common) -> std::string {
-		std::error_code ec = error_common;
-		return boost::str (boost::format ("error: %1%") % ec.message ());
-	};
+	ASSERT_EQ (response.count ("representatives"), 1);
+	ASSERT_EQ (response.get_child ("representatives").size (), 1);
+	ASSERT_EQ (response.get_child ("representatives").count (nano::dev::genesis_key.pub.to_account ()), 1);
+	auto rep_text = response.get_child ("representatives").get<std::string> (nano::dev::genesis_key.pub.to_account ());
+	ASSERT_EQ (rep_text, nano::dev::genesis->account ().to_account ());
 
-	std::map<std::string, std::string> reply_map{
-		{ nano::dev::genesis_key.pub.to_account (), nano::dev::genesis->account ().to_account () },
-		{ invalid_key, get_error_message (nano::error_common::bad_account_number) },
-		{ valid_key, get_error_message (nano::error_common::account_not_found) }
-	};
-
-	for (auto & representative : response.get_child ("representatives"))
-	{
-		std::string account_text = representative.first;
-		std::string frontier_text = representative.second.get<std::string> ("");
-		ASSERT_EQ (frontier_text, reply_map[account_text]);
-		reply_map.erase (account_text);
-	}
-	ASSERT_EQ (reply_map.size (), 0);
+	ASSERT_EQ (response.count ("errors"), 1);
+	ASSERT_EQ (response.get_child ("errors").size (), 2);
+	ASSERT_EQ (response.get_child ("errors").count (bad_account_number), 1);
+	ASSERT_EQ (response.get_child ("errors").count (account_not_found), 1);
+	ASSERT_EQ (response.get_child ("errors").get<std::string> (bad_account_number), make_error_code (nano::error_common::bad_account_number).message ());
+	ASSERT_EQ (response.get_child ("errors").get<std::string> (account_not_found), make_error_code (nano::error_common::account_not_found).message ());
 }
 
 TEST (rpc, accounts_frontiers)
@@ -3576,157 +3109,67 @@ TEST (rpc, accounts_frontiers)
 	boost::property_tree::ptree request;
 	request.put ("action", "accounts_frontiers");
 	boost::property_tree::ptree accounts_l;
+
 	// Adds a valid account that will be found in the ledger.
 	boost::property_tree::ptree entry1;
 	entry1.put ("", nano::dev::genesis_key.pub.to_account ());
 	accounts_l.push_back (std::make_pair ("", entry1));
+
+	request.add_child ("accounts", accounts_l);
+	auto response (wait_response (system, rpc_ctx, request));
+
+	ASSERT_EQ (response.count ("frontiers"), 1);
+	ASSERT_EQ (response.get_child ("frontiers").size (), 1);
+	ASSERT_EQ (response.get_child ("frontiers").count (nano::dev::genesis_key.pub.to_account ()), 1);
+	auto frontier_text = response.get_child ("frontiers").get<std::string> (nano::dev::genesis_key.pub.to_account ());
+	ASSERT_EQ (nano::block_hash{ frontier_text }, node->latest (nano::dev::genesis->account ()));
+
+	ASSERT_EQ (response.count ("errors"), 0);
+}
+
+TEST (rpc, accounts_frontiers_with_errors)
+{
+	nano::test::system system;
+	auto node = add_ipc_enabled_node (system);
+	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
+	auto const rpc_ctx = add_rpc (system, node);
+
+	boost::property_tree::ptree request;
+	request.put ("action", "accounts_frontiers");
+	boost::property_tree::ptree accounts_l;
+
+	// Adds a valid account that will be found in the ledger.
+	boost::property_tree::ptree entry1;
+	entry1.put ("", nano::dev::genesis_key.pub.to_account ());
+	accounts_l.push_back (std::make_pair ("", entry1));
+
 	// Adds a bad account number for getting an error response.
 	boost::property_tree::ptree entry2;
 	auto const bad_account_number = "nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1";
 	entry2.put ("", bad_account_number);
 	accounts_l.push_back (std::make_pair ("", entry2));
+
 	// Adds a valid account that isn't on the ledger for getting an error response.
 	boost::property_tree::ptree entry3;
 	auto const account_not_found = "nano_1os6txqxyuesnxrtshnfb5or1hesc1647wpk9rsr84pmki6eairwha79hk3j";
 	entry3.put ("", account_not_found);
 	accounts_l.push_back (std::make_pair ("", entry3));
+
 	request.add_child ("accounts", accounts_l);
 	auto response (wait_response (system, rpc_ctx, request));
 
-	auto get_error_message = [] (nano::error_common error_common) -> std::string {
-		std::error_code ec = error_common;
-		return boost::str (boost::format ("error: %1%") % ec.message ());
-	};
+	ASSERT_EQ (response.count ("frontiers"), 1);
+	ASSERT_EQ (response.get_child ("frontiers").size (), 1);
+	ASSERT_EQ (response.get_child ("frontiers").count (nano::dev::genesis_key.pub.to_account ()), 1);
+	auto frontier_text = response.get_child ("frontiers").get<std::string> (nano::dev::genesis_key.pub.to_account ());
+	ASSERT_EQ (nano::block_hash{ frontier_text }, node->latest (nano::dev::genesis->account ()));
 
-	// create a map of expected replies, everytime we receive and echeck a reply, we remove it from this map
-	// in the end, this container should be empty, which would signify that all 3 replies were received correctly
-	std::map<std::string, std::string> reply_map{
-		{ nano::dev::genesis_key.pub.to_account (), nano::dev::genesis->hash ().to_string () },
-		{ bad_account_number, get_error_message (nano::error_common::bad_account_number) },
-		{ account_not_found, get_error_message (nano::error_common::account_not_found) },
-	};
-
-	for (auto & frontier : response.get_child ("frontiers"))
-	{
-		std::string account_text = frontier.first;
-		std::string frontier_text = frontier.second.get<std::string> ("");
-		ASSERT_EQ (frontier_text, reply_map[account_text]);
-		reply_map.erase (account_text);
-	}
-
-	// we expect all replies to have been received and this container to be empty
-	ASSERT_EQ (reply_map.size (), 0);
-}
-
-TEST (rpc, accounts_pending)
-{
-	nano::test::system system;
-	auto node = add_ipc_enabled_node (system);
-	auto const rpc_ctx = add_rpc (system, node);
-	boost::property_tree::ptree request;
-	boost::property_tree::ptree child;
-	boost::property_tree::ptree accounts;
-	child.put ("", nano::dev::genesis_key.pub.to_account ());
-	accounts.push_back (std::make_pair ("", child));
-	request.add_child ("accounts", accounts);
-	request.put ("action", "accounts_pending");
-	auto response (wait_response (system, rpc_ctx, request));
-	ASSERT_EQ ("1", response.get<std::string> ("deprecated"));
-}
-
-TEST (rpc, accounts_receivable)
-{
-	nano::test::system system;
-	auto node = add_ipc_enabled_node (system);
-	nano::keypair key1;
-	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	auto block1 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 100));
-	node->scheduler.flush ();
-	ASSERT_TIMELY (5s, !node->active.active (*block1));
-	ASSERT_TIMELY (5s, node->ledger.cache.cemented_count == 2 && node->confirmation_height_processor.current ().is_zero () && node->confirmation_height_processor.awaiting_processing_size () == 0);
-
-	auto const rpc_ctx = add_rpc (system, node);
-	boost::property_tree::ptree request;
-	request.put ("action", "accounts_receivable");
-	boost::property_tree::ptree entry;
-	boost::property_tree::ptree peers_l;
-	entry.put ("", key1.pub.to_account ());
-	peers_l.push_back (std::make_pair ("", entry));
-	request.add_child ("accounts", peers_l);
-	request.put ("count", "100");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		for (auto & blocks : response.get_child ("blocks"))
-		{
-			std::string account_text (blocks.first);
-			ASSERT_EQ (key1.pub.to_account (), account_text);
-			nano::block_hash hash1 (blocks.second.begin ()->second.get<std::string> (""));
-			ASSERT_EQ (block1->hash (), hash1);
-		}
-	}
-	request.put ("sorting", "true"); // Sorting test
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		for (auto & blocks : response.get_child ("blocks"))
-		{
-			std::string account_text (blocks.first);
-			ASSERT_EQ (key1.pub.to_account (), account_text);
-			nano::block_hash hash1 (blocks.second.begin ()->first);
-			ASSERT_EQ (block1->hash (), hash1);
-			std::string amount (blocks.second.begin ()->second.get<std::string> (""));
-			ASSERT_EQ ("100", amount);
-		}
-	}
-	request.put ("threshold", "100"); // Threshold test
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		std::unordered_map<nano::block_hash, nano::uint128_union> blocks;
-		for (auto & pending : response.get_child ("blocks"))
-		{
-			std::string account_text (pending.first);
-			ASSERT_EQ (key1.pub.to_account (), account_text);
-			for (auto i (pending.second.begin ()), j (pending.second.end ()); i != j; ++i)
-			{
-				nano::block_hash hash;
-				hash.decode_hex (i->first);
-				nano::uint128_union amount;
-				amount.decode_dec (i->second.get<std::string> (""));
-				blocks[hash] = amount;
-				boost::optional<std::string> source (i->second.get_optional<std::string> ("source"));
-				ASSERT_FALSE (source.is_initialized ());
-			}
-		}
-		ASSERT_EQ (blocks[block1->hash ()], 100);
-	}
-	request.put ("source", "true");
-	{
-		auto response (wait_response (system, rpc_ctx, request));
-		std::unordered_map<nano::block_hash, nano::uint128_union> amounts;
-		std::unordered_map<nano::block_hash, nano::account> sources;
-		for (auto & pending : response.get_child ("blocks"))
-		{
-			std::string account_text (pending.first);
-			ASSERT_EQ (key1.pub.to_account (), account_text);
-			for (auto i (pending.second.begin ()), j (pending.second.end ()); i != j; ++i)
-			{
-				nano::block_hash hash;
-				hash.decode_hex (i->first);
-				amounts[hash].decode_dec (i->second.get<std::string> ("amount"));
-				sources[hash].decode_account (i->second.get<std::string> ("source"));
-			}
-		}
-		ASSERT_EQ (amounts[block1->hash ()], 100);
-		ASSERT_EQ (sources[block1->hash ()], nano::dev::genesis_key.pub);
-	}
-
-	check_block_response_count (system, rpc_ctx, request, 1);
-	rpc_ctx.io_scope->reset ();
-	reset_confirmation_height (system.nodes.front ()->store, block1->account ());
-	rpc_ctx.io_scope->renew ();
-	check_block_response_count (system, rpc_ctx, request, 0);
-	request.put ("include_only_confirmed", "false");
-	rpc_ctx.io_scope->renew ();
-	check_block_response_count (system, rpc_ctx, request, 1);
+	ASSERT_EQ (response.count ("errors"), 1);
+	ASSERT_EQ (response.get_child ("errors").size (), 2);
+	ASSERT_EQ (response.get_child ("errors").count (bad_account_number), 1);
+	ASSERT_EQ (response.get_child ("errors").count (account_not_found), 1);
+	ASSERT_EQ (response.get_child ("errors").get<std::string> (bad_account_number), make_error_code (nano::error_common::bad_account_number).message ());
+	ASSERT_EQ (response.get_child ("errors").get<std::string> (account_not_found), make_error_code (nano::error_common::account_not_found).message ());
 }
 
 TEST (rpc, blocks)
@@ -3761,20 +3204,16 @@ TEST (rpc, wallet_info)
 	nano::keypair key;
 	system.wallet (0)->insert_adhoc (key.prv);
 
-	// at first, 1 block and 1 confirmed -- the genesis
-	ASSERT_EQ (1, node->ledger.cache.block_count);
-	ASSERT_EQ (1, node->ledger.cache.cemented_count);
-
 	auto send (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key.pub, nano::MBAN_ratio));
 	// after the send, expect 2 blocks immediately, then 2 confirmed in a timely manner,
 	// and finally 3 blocks and 3 confirmed after the wallet generates the receive block for this send
-	ASSERT_EQ (2, node->ledger.cache.block_count);
-	ASSERT_TIMELY (5s, 2 == node->ledger.cache.cemented_count);
-	ASSERT_TIMELY (5s, 3 == node->ledger.cache.block_count && 3 == node->ledger.cache.cemented_count);
+	ASSERT_TIMELY (5s, node->block_confirmed (send->hash ())); // Send gets confirmed
+	ASSERT_TIMELY (5s, !node->latest (key.pub).is_zero ()); // Receive gets generated
+	ASSERT_TIMELY (5s, node->block_confirmed (node->latest (key.pub))); // Receive gets confirmed
 
 	// do another send to be able to expect some "pending" down below
 	auto send2 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key.pub, 1));
-	ASSERT_TIMELY (5s, 4 == node->ledger.cache.block_count && 4 == node->ledger.cache.cemented_count);
+	ASSERT_TIMELY (5s, node->block_confirmed (send2->hash ()));
 
 	nano::account account (system.wallet (0)->deterministic_insert ());
 	{
@@ -3825,10 +3264,8 @@ TEST (rpc, wallet_balances)
 		ASSERT_EQ ("0", pending_text);
 	}
 	nano::keypair key;
-	rpc_ctx.io_scope->reset ();
 	system0.wallet (0)->insert_adhoc (key.prv);
 	auto send (system0.wallet (0)->send_action (nano::dev::genesis_key.pub, key.pub, 1));
-	rpc_ctx.io_scope->renew ();
 	request.put ("threshold", "2");
 	auto response1 (wait_response (system0, rpc_ctx, request));
 	for (auto & balances : response1.get_child ("balances"))
@@ -3845,14 +3282,15 @@ TEST (rpc, wallet_balances)
 TEST (rpc, pending_exists)
 {
 	nano::test::system system;
-	auto node = add_ipc_enabled_node (system);
+	nano::node_config config;
+	config.backlog_scan_batch_size = 0;
+	auto node = add_ipc_enabled_node (system, config);
 	nano::keypair key1;
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
 	auto hash0 (node->latest (nano::dev::genesis->account ()));
 	auto block1 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 100));
-	node->scheduler.flush ();
+	ASSERT_TIMELY (5s, node->block_confirmed (block1->hash ()));
 	ASSERT_TIMELY (5s, !node->active.active (*block1));
-	ASSERT_TIMELY (5s, node->ledger.cache.cemented_count == 2 && node->confirmation_height_processor.current ().is_zero () && node->confirmation_height_processor.awaiting_processing_size () == 0);
 
 	auto const rpc_ctx = add_rpc (system, node);
 	boost::property_tree::ptree request;
@@ -3860,25 +3298,22 @@ TEST (rpc, pending_exists)
 	auto pending_exists = [&system, &rpc_ctx, &request] (char const * exists_a) {
 		auto response0 (wait_response (system, rpc_ctx, request));
 		std::string exists_text (response0.get<std::string> ("exists"));
-		ASSERT_EQ (exists_a, exists_text);
+		return exists_a == exists_text;
 	};
 
 	request.put ("action", "pending_exists");
 	request.put ("hash", hash0.to_string ());
-	pending_exists ("0");
+	ASSERT_TRUE (pending_exists ("0"));
 
 	node->store.pending.exists (node->store.tx_begin_read (), nano::pending_key (nano::dev::genesis_key.pub, block1->hash ()));
 	request.put ("hash", block1->hash ().to_string ());
-	pending_exists ("1");
+	ASSERT_TRUE (pending_exists ("1"));
 
-	pending_exists ("1");
-	rpc_ctx.io_scope->reset ();
+	ASSERT_TRUE (pending_exists ("1"));
 	reset_confirmation_height (node->store, block1->account ());
-	rpc_ctx.io_scope->renew ();
-	pending_exists ("0");
+	ASSERT_TRUE (pending_exists ("0"));
 	request.put ("include_only_confirmed", "false");
-	rpc_ctx.io_scope->renew ();
-	pending_exists ("1");
+	ASSERT_TRUE (pending_exists ("1"));
 }
 
 TEST (rpc, wallet_pending)
@@ -3905,27 +3340,23 @@ TEST (rpc, wallet_pending)
 
 TEST (rpc, wallet_receivable)
 {
-	nano::test::system system0;
-	auto node = add_ipc_enabled_node (system0);
+	nano::test::system system;
+	nano::node_config config;
+	config.backlog_scan_batch_size = 0;
+	auto node = add_ipc_enabled_node (system, config);
 	nano::keypair key1;
-	system0.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	system0.wallet (0)->insert_adhoc (key1.prv);
+	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
+	system.wallet (0)->insert_adhoc (key1.prv);
 	auto iterations (0);
-	auto block1 (system0.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 100));
-	node->scheduler.flush ();
-	while (node->active.active (*block1) || node->ledger.cache.cemented_count < 2 || !node->confirmation_height_processor.current ().is_zero () || node->confirmation_height_processor.awaiting_processing_size () != 0)
-	{
-		system0.poll ();
-		++iterations;
-		ASSERT_LT (iterations, 200);
-	}
-
-	auto const rpc_ctx = add_rpc (system0, node);
+	auto block1 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key1.pub, 100));
+	ASSERT_TIMELY (5s, node->block_confirmed (block1->hash ()));
+	ASSERT_TIMELY (5s, !node->active.active (*block1));
+	auto const rpc_ctx = add_rpc (system, node);
 	boost::property_tree::ptree request;
 	request.put ("action", "wallet_receivable");
 	request.put ("wallet", node->wallets.items.begin ()->first.to_string ());
 	request.put ("count", "100");
-	auto response (wait_response (system0, rpc_ctx, request));
+	auto response (wait_response (system, rpc_ctx, request));
 	ASSERT_EQ (1, response.get_child ("blocks").size ());
 	for (auto & pending : response.get_child ("blocks"))
 	{
@@ -3935,7 +3366,7 @@ TEST (rpc, wallet_receivable)
 		ASSERT_EQ (block1->hash (), hash1);
 	}
 	request.put ("threshold", "100"); // Threshold test
-	auto response0 (wait_response (system0, rpc_ctx, request));
+	auto response0 (wait_response (system, rpc_ctx, request));
 	std::unordered_map<nano::block_hash, nano::uint128_union> blocks;
 	ASSERT_EQ (1, response0.get_child ("blocks").size ());
 	for (auto & pending : response0.get_child ("blocks"))
@@ -3957,13 +3388,13 @@ TEST (rpc, wallet_receivable)
 	}
 	ASSERT_EQ (blocks[block1->hash ()], 100);
 	request.put ("threshold", "101");
-	auto response1 (wait_response (system0, rpc_ctx, request));
+	auto response1 (wait_response (system, rpc_ctx, request));
 	auto & pending1 (response1.get_child ("blocks"));
 	ASSERT_EQ (0, pending1.size ());
 	request.put ("threshold", "0");
 	request.put ("source", "true");
 	request.put ("min_version", "true");
-	auto response2 (wait_response (system0, rpc_ctx, request));
+	auto response2 (wait_response (system, rpc_ctx, request));
 	std::unordered_map<nano::block_hash, nano::uint128_union> amounts;
 	std::unordered_map<nano::block_hash, nano::account> sources;
 	ASSERT_EQ (1, response2.get_child ("blocks").size ());
@@ -3983,14 +3414,11 @@ TEST (rpc, wallet_receivable)
 	ASSERT_EQ (amounts[block1->hash ()], 100);
 	ASSERT_EQ (sources[block1->hash ()], nano::dev::genesis_key.pub);
 
-	check_block_response_count (system0, rpc_ctx, request, 1);
-	rpc_ctx.io_scope->reset ();
-	reset_confirmation_height (system0.nodes.front ()->store, block1->account ());
-	rpc_ctx.io_scope->renew ();
-	check_block_response_count (system0, rpc_ctx, request, 0);
+	ASSERT_TRUE (check_block_response_count (system, rpc_ctx, request, 1));
+	reset_confirmation_height (system.nodes.front ()->store, block1->account ());
+	ASSERT_TRUE (check_block_response_count (system, rpc_ctx, request, 0));
 	request.put ("include_only_confirmed", "false");
-	rpc_ctx.io_scope->renew ();
-	check_block_response_count (system0, rpc_ctx, request, 1);
+	ASSERT_TRUE (check_block_response_count (system, rpc_ctx, request, 1));
 }
 
 TEST (rpc, receive_minimum)
@@ -4367,7 +3795,6 @@ TEST (rpc, account_info)
 		ASSERT_EQ (error.get (), std::error_code (nano::error_common::account_not_found).message ());
 	}
 
-	rpc_ctx.io_scope->reset ();
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
 	system.wallet (0)->insert_adhoc (key.prv);
 	auto latest (node1->latest (nano::dev::genesis_key.pub));
@@ -4381,12 +3808,11 @@ TEST (rpc, account_info)
 				.work (*node1->work_generate_blocking (latest))
 				.build ();
 	ASSERT_EQ (nano::process_result::progress, node1->process (*send).code);
-	auto time (nano::seconds_since_epoch ());
+	auto time = nano::seconds_since_epoch ();
 	{
 		auto transaction = node1->store.tx_begin_write ();
 		node1->store.confirmation_height.put (transaction, nano::dev::genesis_key.pub, { 1, nano::dev::genesis->hash () });
 	}
-	rpc_ctx.io_scope->renew ();
 
 	request.put ("account", nano::dev::genesis_key.pub.to_account ());
 	{
@@ -4429,7 +3855,6 @@ TEST (rpc, account_info)
 	}
 
 	// Test for confirmed only blocks
-	rpc_ctx.io_scope->reset ();
 	nano::keypair key1;
 	{
 		latest = node1->latest (nano::dev::genesis_key.pub);
@@ -4473,9 +3898,9 @@ TEST (rpc, account_info)
 					.work (*node1->work_generate_blocking (key1.pub))
 					.build ();
 		ASSERT_EQ (nano::process_result::progress, node1->process (*open).code);
+		ASSERT_TIMELY (5s, !node1->active.active (*state_change));
+		ASSERT_TIMELY (5s, !node1->active.active (*open));
 	}
-
-	rpc_ctx.io_scope->renew ();
 
 	{
 		auto response (wait_response (system, rpc_ctx, request));
@@ -4858,9 +4283,8 @@ TEST (rpc, block_info_pruning)
 					.work (*node1->work_generate_blocking (send1->hash ()))
 					.build_shared ();
 	node1->process_active (receive1);
-	node1->block_processor.flush ();
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	ASSERT_TIMELY (5s, node1->ledger.cache.cemented_count == 3 && node1->confirmation_height_processor.current ().is_zero () && node1->confirmation_height_processor.awaiting_processing_size () == 0);
+	ASSERT_TIMELY (5s, node1->block_confirmed (receive1->hash ()));
 	// Pruning action
 	{
 		auto transaction (node1->store.tx_begin_write ());
@@ -4925,9 +4349,8 @@ TEST (rpc, pruned_exists)
 					.work (*node1->work_generate_blocking (send1->hash ()))
 					.build_shared ();
 	node1->process_active (receive1);
-	node1->block_processor.flush ();
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	ASSERT_TIMELY (5s, node1->ledger.cache.cemented_count == 3 && node1->confirmation_height_processor.current ().is_zero () && node1->confirmation_height_processor.awaiting_processing_size () == 0);
+	ASSERT_TIMELY (5s, node1->block_confirmed (receive1->hash ()));
 	// Pruning action
 	{
 		auto transaction (node1->store.tx_begin_write ());
@@ -5046,7 +4469,7 @@ TEST (rpc, ledger)
 				.work (*node->work_generate_blocking (key.pub))
 				.build ();
 	ASSERT_EQ (nano::process_result::progress, node->process (*open).code);
-	auto time (nano::seconds_since_epoch ());
+	auto time = nano::seconds_since_epoch ();
 	auto const rpc_ctx = add_rpc (system, node);
 	boost::property_tree::ptree request;
 	request.put ("action", "ledger");
@@ -5119,9 +4542,7 @@ TEST (rpc, ledger)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*node->work_generate_blocking (send->hash ()))
 				 .build ();
-	rpc_ctx.io_scope->reset ();
 	ASSERT_EQ (nano::process_result::progress, node->process (*send2).code);
-	rpc_ctx.io_scope->renew ();
 	// When asking for pending, pending amount is taken into account for threshold so the account must show up
 	request.put ("count", 2);
 	request.put ("threshold", (send_amount + send2_amount).convert_to<std::string> ());
@@ -5208,9 +4629,7 @@ TEST (rpc, block_create)
 	boost::property_tree::read_json (block_stream, block_l);
 	auto send_block (nano::deserialize_block_json (block_l));
 	ASSERT_EQ (send->hash (), send_block->hash ());
-	rpc_ctx.io_scope->reset ();
 	ASSERT_EQ (nano::process_result::progress, node1->process (*send).code);
-	rpc_ctx.io_scope->renew ();
 	boost::property_tree::ptree request1;
 	request1.put ("action", "block_create");
 	request1.put ("type", "open");
@@ -5228,9 +4647,7 @@ TEST (rpc, block_create)
 	boost::property_tree::read_json (block_stream1, block_l);
 	auto open_block (nano::deserialize_block_json (block_l));
 	ASSERT_EQ (open->hash (), open_block->hash ());
-	rpc_ctx.io_scope->reset ();
 	ASSERT_EQ (nano::process_result::progress, node1->process (*open).code);
-	rpc_ctx.io_scope->renew ();
 	request1.put ("representative", key.pub.to_account ());
 	auto response2 (wait_response (system, rpc_ctx, request1));
 	std::string open2_hash (response2.get<std::string> ("hash"));
@@ -5253,7 +4670,6 @@ TEST (rpc, block_create)
 	boost::property_tree::read_json (block_stream4, block_l);
 	auto change_block (nano::deserialize_block_json (block_l));
 	ASSERT_EQ (change->hash (), change_block->hash ());
-	rpc_ctx.io_scope->reset ();
 	ASSERT_EQ (nano::process_result::progress, node1->process (*change).code);
 	auto send2 = builder
 				 .send ()
@@ -5264,7 +4680,6 @@ TEST (rpc, block_create)
 				 .work (*node1->work_generate_blocking (send->hash ()))
 				 .build ();
 	ASSERT_EQ (nano::process_result::progress, node1->process (*send2).code);
-	rpc_ctx.io_scope->renew ();
 	boost::property_tree::ptree request2;
 	request2.put ("action", "block_create");
 	request2.put ("type", "receive");
@@ -5312,7 +4727,6 @@ TEST (rpc, block_create_state)
 	ASSERT_NE (nullptr, state_block);
 	ASSERT_EQ (nano::block_type::state, state_block->type ());
 	ASSERT_EQ (state_hash, state_block->hash ().to_string ());
-	rpc_ctx.io_scope->reset ();
 	auto process_result (node->process (*state_block));
 	ASSERT_EQ (nano::process_result::progress, process_result.code);
 }
@@ -5349,7 +4763,6 @@ TEST (rpc, block_create_state_open)
 	auto difficulty (nano::dev::network_params.work.difficulty (*state_block));
 	ASSERT_GT (difficulty, nano::dev::network_params.work.threshold (state_block->work_version (), nano::block_details (nano::epoch::epoch_0, false, true, false)));
 	ASSERT_TRUE (node->latest (key.pub).is_zero ());
-	rpc_ctx.io_scope->reset ();
 	auto process_result (node->process (*state_block));
 	ASSERT_EQ (nano::process_result::progress, process_result.code);
 	ASSERT_EQ (state_block->sideband ().details.epoch, nano::epoch::epoch_0);
@@ -5429,7 +4842,6 @@ TEST (rpc, block_create_open_epoch_v2)
 	auto difficulty (nano::dev::network_params.work.difficulty (*state_block));
 	ASSERT_GT (difficulty, nano::dev::network_params.work.threshold (state_block->work_version (), nano::block_details (nano::epoch::epoch_2, false, true, false)));
 	ASSERT_TRUE (node->latest (key.pub).is_zero ());
-	rpc_ctx.io_scope->reset ();
 	auto process_result (node->process (*state_block));
 	ASSERT_EQ (nano::process_result::progress, process_result.code);
 	ASSERT_EQ (state_block->sideband ().details.epoch, nano::epoch::epoch_2);
@@ -5482,7 +4894,6 @@ TEST (rpc, block_create_receive_epoch_v2)
 	ASSERT_EQ (state_hash, state_block->hash ().to_string ());
 	auto difficulty (nano::dev::network_params.work.difficulty (*state_block));
 	ASSERT_GT (difficulty, nano::dev::network_params.work.threshold (state_block->work_version (), nano::block_details (nano::epoch::epoch_2, false, true, false)));
-	rpc_ctx.io_scope->reset ();
 	auto process_result (node->process (*state_block));
 	ASSERT_EQ (nano::process_result::progress, process_result.code);
 	ASSERT_EQ (state_block->sideband ().details.epoch, nano::epoch::epoch_2);
@@ -5534,7 +4945,6 @@ TEST (rpc, block_create_send_epoch_v2)
 	ASSERT_EQ (state_hash, state_block->hash ().to_string ());
 	auto difficulty (nano::dev::network_params.work.difficulty (*state_block));
 	ASSERT_GT (difficulty, nano::dev::network_params.work.threshold (state_block->work_version (), nano::block_details (nano::epoch::epoch_2, true, false, false)));
-	rpc_ctx.io_scope->reset ();
 	auto process_result (node->process (*state_block));
 	ASSERT_EQ (nano::process_result::progress, process_result.code);
 	ASSERT_EQ (state_block->sideband ().details.epoch, nano::epoch::epoch_2);
@@ -5646,7 +5056,7 @@ TEST (rpc, wallet_ledger)
 				.work (*node1->work_generate_blocking (key.pub))
 				.build ();
 	ASSERT_EQ (nano::process_result::progress, node1->process (*open).code);
-	auto time (nano::seconds_since_epoch ());
+	auto time = nano::seconds_since_epoch ();
 	auto const rpc_ctx = add_rpc (system, node1);
 	boost::property_tree::ptree request;
 	request.put ("action", "wallet_ledger");
@@ -5760,20 +5170,14 @@ TEST (rpc, online_reps)
 	auto weight2 (item2->second.get<std::string> ("weight"));
 	ASSERT_EQ (node2->weight (nano::dev::genesis_key.pub).convert_to<std::string> (), weight2);
 	// Test accounts filter
-	rpc_ctx.io_scope->reset ();
 	auto new_rep (system.wallet (1)->deterministic_insert ());
 	auto send (system.wallet (0)->send_action (nano::dev::genesis_key.pub, new_rep, node1->config.receive_minimum.number ()));
-	rpc_ctx.io_scope->renew ();
 	ASSERT_NE (nullptr, send);
 	ASSERT_TIMELY (10s, node2->block (send->hash ()));
-	rpc_ctx.io_scope->reset ();
 	auto receive (system.wallet (1)->receive_action (send->hash (), new_rep, node1->config.receive_minimum.number (), send->link ().as_account ()));
-	rpc_ctx.io_scope->renew ();
 	ASSERT_NE (nullptr, receive);
 	ASSERT_TIMELY (5s, node2->block (receive->hash ()));
-	rpc_ctx.io_scope->reset ();
 	auto change (system.wallet (0)->change_action (nano::dev::genesis_key.pub, new_rep));
-	rpc_ctx.io_scope->renew ();
 	ASSERT_NE (nullptr, change);
 	ASSERT_TIMELY (5s, node2->block (change->hash ()));
 	ASSERT_TIMELY (5s, node2->online_reps.list ().size () == 2);
@@ -5834,9 +5238,9 @@ TEST (rpc, confirmation_height_currently_processing)
 	{
 		// Write guard prevents the confirmation height processor writing the blocks, so that we can inspect contents during the response
 		auto write_guard = node->write_database_queue.wait (nano::writer::testing);
-		node->block_confirm (frontier);
+		nano::test::start_election (system, *node, frontier->hash ());
 
-		ASSERT_TIMELY (10s, node->confirmation_height_processor.current () == frontier->hash ());
+		ASSERT_TIMELY (5s, node->confirmation_height_processor.current () == frontier->hash ());
 
 		// Make the request
 		{
@@ -6054,7 +5458,7 @@ TEST (rpc, unchecked)
 	node->process_active (open);
 	node->process_active (open2);
 	// Waits for the last block of the queue to get saved in the database
-	ASSERT_TIMELY (10s, 2 == node->unchecked.count (node->store.tx_begin_read ()));
+	ASSERT_TIMELY (10s, 2 == node->unchecked.count ());
 	boost::property_tree::ptree request;
 	request.put ("action", "unchecked");
 	request.put ("count", 2);
@@ -6095,14 +5499,14 @@ TEST (rpc, unchecked_get)
 				.build_shared ();
 	node->process_active (open);
 	// Waits for the open block to get saved in the database
-	ASSERT_TIMELY (10s, 1 == node->unchecked.count (node->store.tx_begin_read ()));
+	ASSERT_TIMELY (10s, 1 == node->unchecked.count ());
 	boost::property_tree::ptree request{};
 	request.put ("action", "unchecked_get");
 	request.put ("hash", open->hash ().to_string ());
 	{
 		auto response (wait_response (system, rpc_ctx, request));
 		ASSERT_EQ (1, response.count ("contents"));
-		auto timestamp (response.get<uint64_t> ("modified_timestamp"));
+		auto timestamp (response.get<nano::seconds_t> ("modified_timestamp"));
 		ASSERT_LE (timestamp, nano::seconds_since_epoch ());
 	}
 	request.put ("json_block", true);
@@ -6110,7 +5514,7 @@ TEST (rpc, unchecked_get)
 		auto response (wait_response (system, rpc_ctx, request));
 		auto & contents (response.get_child ("contents"));
 		ASSERT_EQ ("state", contents.get<std::string> ("type"));
-		auto timestamp (response.get<uint64_t> ("modified_timestamp"));
+		auto timestamp (response.get<nano::seconds_t> ("modified_timestamp"));
 		ASSERT_LE (timestamp, nano::seconds_since_epoch ());
 	}
 }
@@ -6135,12 +5539,12 @@ TEST (rpc, unchecked_clear)
 	node->process_active (open);
 	boost::property_tree::ptree request{};
 	// Waits for the open block to get saved in the database
-	ASSERT_TIMELY (10s, 1 == node->unchecked.count (node->store.tx_begin_read ()));
+	ASSERT_TIMELY (10s, 1 == node->unchecked.count ());
 	request.put ("action", "unchecked_clear");
 	auto response = wait_response (system, rpc_ctx, request);
 
 	// Waits for the open block to get saved in the database
-	ASSERT_TIMELY (10s, 0 == node->unchecked.count (node->store.tx_begin_read ()));
+	ASSERT_TIMELY (10s, 0 == node->unchecked.count ());
 }
 
 TEST (rpc, unopened)
@@ -6257,14 +5661,14 @@ TEST (rpc, DISABLED_wallet_history)
 	node_config.enable_voting = false;
 	auto node = add_ipc_enabled_node (system, node_config);
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	auto timestamp1 (nano::seconds_since_epoch ());
+	auto timestamp1 = nano::seconds_since_epoch ();
 	auto send (system.wallet (0)->send_action (nano::dev::genesis_key.pub, nano::dev::genesis_key.pub, node->config.receive_minimum.number ()));
 	ASSERT_NE (nullptr, send);
-	auto timestamp2 (nano::seconds_since_epoch ());
+	auto timestamp2 = nano::seconds_since_epoch ();
 	auto receive (system.wallet (0)->receive_action (send->hash (), nano::dev::genesis_key.pub, node->config.receive_minimum.number (), send->link ().as_account ()));
 	ASSERT_NE (nullptr, receive);
 	nano::keypair key;
-	auto timestamp3 (nano::seconds_since_epoch ());
+	auto timestamp3 = nano::seconds_since_epoch ();
 	auto send2 (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key.pub, node->config.receive_minimum.number ()));
 	ASSERT_NE (nullptr, send2);
 	system.deadline_set (10s);
@@ -6430,7 +5834,6 @@ TEST (rpc, block_confirmed)
 	auto response1 (wait_response (system, rpc_ctx, request));
 	ASSERT_EQ (std::error_code (nano::error_blocks::not_found).message (), response1.get<std::string> ("error"));
 
-	rpc_ctx.io_scope->reset ();
 	nano::keypair key;
 	nano::block_builder builder;
 
@@ -6458,7 +5861,6 @@ TEST (rpc, block_confirmed)
 					 .build ();
 		ASSERT_EQ (nano::process_result::progress, node->ledger.process (transaction, *open1).code);
 	}
-	rpc_ctx.io_scope->renew ();
 
 	// This should not be confirmed
 	nano::block_hash latest (node->latest (nano::dev::genesis_key.pub));
@@ -6476,14 +5878,10 @@ TEST (rpc, block_confirmed)
 				.work (*system.work.generate (latest))
 				.build_shared ();
 	node->process_active (send);
-	node->block_processor.flush ();
-	node->block_confirm (send);
-	auto election = node->active.election (send->qualified_root ());
-	ASSERT_NE (nullptr, election);
-	election->force_confirm ();
+	ASSERT_TIMELY (5s, nano::test::confirm (*node, { send }));
 
 	// Wait until the confirmation height has been set
-	ASSERT_TIMELY (10s, node->ledger.block_confirmed (node->store.tx_begin_read (), send->hash ()) && !node->confirmation_height_processor.is_processing_block (send->hash ()));
+	ASSERT_TIMELY (5s, node->ledger.block_confirmed (node->store.tx_begin_read (), send->hash ()) && !node->confirmation_height_processor.is_processing_block (send->hash ()));
 
 	// Requesting confirmation for this should now succeed
 	request.put ("hash", send->hash ().to_string ());
@@ -6639,7 +6037,6 @@ TEST (rpc, simultaneous_calls)
 	// This tests simulatenous calls to the same node in different threads
 	nano::test::system system;
 	auto node = add_ipc_enabled_node (system);
-	scoped_io_thread_name_change scoped_thread_name_io;
 	nano::thread_runner runner (system.io_ctx, node->config.io_threads);
 	nano::node_rpc_config node_rpc_config;
 	nano::ipc::ipc_server ipc_server (*node, node_rpc_config);
@@ -6825,7 +6222,6 @@ TEST (rpc, epoch_upgrade)
 		ASSERT_FALSE (node->store.account.exists (transaction, 0));
 	}
 
-	rpc_ctx.io_scope->reset ();
 	// Epoch 2 upgrade
 	auto genesis_latest (node->latest (nano::dev::genesis_key.pub));
 	auto send5 = builder
@@ -6865,12 +6261,11 @@ TEST (rpc, epoch_upgrade)
 	{
 		// Check pending entry
 		auto transaction (node->store.tx_begin_read ());
-		nano::pending_info info;
-		ASSERT_FALSE (node->store.pending.get (transaction, nano::pending_key (key3.pub, send7->hash ()), info));
-		ASSERT_EQ (nano::epoch::epoch_1, info.epoch);
+		auto info = node->ledger.pending_info (transaction, nano::pending_key (key3.pub, send7->hash ()));
+		ASSERT_TRUE (info);
+		ASSERT_EQ (nano::epoch::epoch_1, info->epoch);
 	}
 
-	rpc_ctx.io_scope->renew ();
 	request.put ("epoch", 2);
 	auto response2 (wait_response (system, rpc_ctx, request));
 	ASSERT_EQ ("1", response2.get<std::string> ("started"));
@@ -6991,7 +6386,6 @@ TEST (rpc, epoch_upgrade_multithreaded)
 		ASSERT_FALSE (node->store.account.exists (transaction, 0));
 	}
 
-	rpc_ctx.io_scope->reset ();
 	// Epoch 2 upgrade
 	auto genesis_latest (node->latest (nano::dev::genesis_key.pub));
 	auto send5 = builder
@@ -7031,12 +6425,11 @@ TEST (rpc, epoch_upgrade_multithreaded)
 	{
 		// Check pending entry
 		auto transaction (node->store.tx_begin_read ());
-		nano::pending_info info;
-		ASSERT_FALSE (node->store.pending.get (transaction, nano::pending_key (key3.pub, send7->hash ()), info));
-		ASSERT_EQ (nano::epoch::epoch_1, info.epoch);
+		auto info = node->ledger.pending_info (transaction, nano::pending_key (key3.pub, send7->hash ()));
+		ASSERT_TRUE (info);
+		ASSERT_EQ (nano::epoch::epoch_1, info->epoch);
 	}
 
-	rpc_ctx.io_scope->renew ();
 	request.put ("epoch", 2);
 	auto response2 (wait_response (system, rpc_ctx, request));
 	ASSERT_EQ ("1", response2.get<std::string> ("started"));
@@ -7135,9 +6528,9 @@ TEST (rpc, receive)
 	{
 		auto response (wait_response (system, rpc_ctx, request));
 		auto receive_text (response.get<std::string> ("block"));
-		nano::account_info info;
-		ASSERT_FALSE (node->store.account.get (node->store.tx_begin_read (), key1.pub, info));
-		ASSERT_EQ (info.head, nano::block_hash{ receive_text });
+		auto info = node->ledger.account_info (node->store.tx_begin_read (), key1.pub);
+		ASSERT_TRUE (info);
+		ASSERT_EQ (info->head, nano::block_hash{ receive_text });
 	}
 	// Trying to receive the same block should fail with unreceivable
 	{
@@ -7176,13 +6569,12 @@ TEST (rpc, receive_unopened)
 	{
 		auto response (wait_response (system, rpc_ctx, request));
 		auto receive_text (response.get<std::string> ("block"));
-		nano::account_info info;
-		ASSERT_FALSE (node->store.account.get (node->store.tx_begin_read (), key1.pub, info));
-		ASSERT_EQ (info.head, info.open_block);
-		ASSERT_EQ (info.head.to_string (), receive_text);
-		ASSERT_EQ (info.representative, nano::dev::genesis_key.pub);
+		auto info = node->ledger.account_info (node->store.tx_begin_read (), key1.pub);
+		ASSERT_TRUE (info);
+		ASSERT_EQ (info->head, info->open_block);
+		ASSERT_EQ (info->head.to_string (), receive_text);
+		ASSERT_EQ (info->representative, nano::dev::genesis_key.pub);
 	}
-	rpc_ctx.io_scope->reset ();
 
 	// Test receiving for an unopened with a different wallet representative
 	nano::keypair key2;
@@ -7194,17 +6586,16 @@ TEST (rpc, receive_unopened)
 	nano::public_key rep;
 	wallet->store.representative_set (node->wallets.tx_begin_write (), rep);
 	wallet->insert_adhoc (key2.prv); // should not auto receive, amount sent was lower than minimum
-	rpc_ctx.io_scope->renew ();
 	request.put ("account", key2.pub.to_account ());
 	request.put ("block", send2->hash ().to_string ());
 	{
 		auto response (wait_response (system, rpc_ctx, request));
 		auto receive_text (response.get<std::string> ("block"));
-		nano::account_info info;
-		ASSERT_FALSE (node->store.account.get (node->store.tx_begin_read (), key2.pub, info));
-		ASSERT_EQ (info.head, info.open_block);
-		ASSERT_EQ (info.head.to_string (), receive_text);
-		ASSERT_EQ (info.representative, rep);
+		auto info = node->ledger.account_info (node->store.tx_begin_read (), key2.pub);
+		ASSERT_TRUE (info);
+		ASSERT_EQ (info->head, info->open_block);
+		ASSERT_EQ (info->head.to_string (), receive_text);
+		ASSERT_EQ (info->representative, rep);
 	}
 }
 
@@ -7264,7 +6655,7 @@ TEST (rpc, receive_pruned)
 	// Extra send frontier
 	auto send3 (wallet1->send_action (nano::dev::genesis_key.pub, key1.pub, node2->config.receive_minimum.number (), *node2->work_generate_blocking (send1->hash ())));
 	// Pruning
-	ASSERT_TIMELY (5s, node2->ledger.cache.cemented_count == 6 && node2->confirmation_height_processor.current ().is_zero () && node2->confirmation_height_processor.awaiting_processing_size () == 0);
+	ASSERT_TIMELY (5s, node2->block_confirmed (send3->hash ()));
 	{
 		auto transaction (node2->store.tx_begin_write ());
 		ASSERT_EQ (2, node2->ledger.pruning_action (transaction, send2->hash (), 1));
@@ -7285,9 +6676,9 @@ TEST (rpc, receive_pruned)
 	{
 		auto response (wait_response (system, rpc_ctx, request));
 		auto receive_text (response.get<std::string> ("block"));
-		nano::account_info info;
-		ASSERT_FALSE (node2->store.account.get (node2->store.tx_begin_read (), key1.pub, info));
-		ASSERT_EQ (info.head, nano::block_hash{ receive_text });
+		auto info = node2->ledger.account_info (node2->store.tx_begin_read (), key1.pub);
+		ASSERT_TRUE (info);
+		ASSERT_EQ (info->head, nano::block_hash{ receive_text });
 	}
 	// Trying to receive the same block should fail with unreceivable
 	{
@@ -7358,7 +6749,7 @@ TEST (rpc, telemetry_single)
 		nano::telemetry_data telemetry_data;
 		auto const should_ignore_identification_metrics = false;
 		ASSERT_FALSE (telemetry_data.deserialize_json (config, should_ignore_identification_metrics));
-		nano::test::compare_default_telemetry_response_data (telemetry_data, node->network_params, node->config.bandwidth_limit, node->default_difficulty (nano::work_version::work_1), node->node_id);
+		ASSERT_TRUE (nano::test::compare_telemetry (telemetry_data, *node));
 	}
 }
 
@@ -7372,14 +6763,11 @@ TEST (rpc, telemetry_all)
 	ASSERT_TIMELY (10s, node1->store.peer.count (node1->store.tx_begin_read ()) != 0);
 
 	// First need to set up the cached data
-	std::atomic<bool> done{ false };
 	auto node = system.nodes.front ();
-	node1->telemetry->get_metrics_single_peer_async (node1->network.find_node_id (node->get_node_id ()), [&done] (nano::telemetry_data_response const & telemetry_data_response_a) {
-		ASSERT_FALSE (telemetry_data_response_a.error);
-		done = true;
-	});
 
-	ASSERT_TIMELY (10s, done);
+	auto channel = node1->network.find_node_id (node->get_node_id ());
+	ASSERT_TRUE (channel);
+	ASSERT_TIMELY (10s, node1->telemetry.get_telemetry (channel->get_endpoint ()));
 
 	boost::property_tree::ptree request;
 	request.put ("action", "telemetry");
@@ -7389,7 +6777,7 @@ TEST (rpc, telemetry_all)
 		nano::telemetry_data telemetry_data;
 		auto const should_ignore_identification_metrics = true;
 		ASSERT_FALSE (telemetry_data.deserialize_json (config, should_ignore_identification_metrics));
-		nano::test::compare_default_telemetry_response_data_excluding_signature (telemetry_data, node->network_params, node->config.bandwidth_limit, node->default_difficulty (nano::work_version::work_1));
+		ASSERT_TRUE (nano::test::compare_telemetry_data (telemetry_data, node->local_telemetry ()));
 		ASSERT_FALSE (response.get_optional<std::string> ("node_id").is_initialized ());
 		ASSERT_FALSE (response.get_optional<std::string> ("signature").is_initialized ());
 	}
@@ -7406,7 +6794,7 @@ TEST (rpc, telemetry_all)
 	nano::telemetry_data data;
 	auto const should_ignore_identification_metrics = false;
 	ASSERT_FALSE (data.deserialize_json (config, should_ignore_identification_metrics));
-	nano::test::compare_default_telemetry_response_data (data, node->network_params, node->config.bandwidth_limit, node->default_difficulty (nano::work_version::work_1), node->node_id);
+	ASSERT_TRUE (nano::test::compare_telemetry (data, *node));
 
 	ASSERT_EQ (node->network.endpoint ().address ().to_string (), metrics.get<std::string> ("address"));
 	ASSERT_EQ (node->network.endpoint ().port (), metrics.get<uint16_t> ("port"));
@@ -7433,7 +6821,7 @@ TEST (rpc, telemetry_self)
 		nano::telemetry_data data;
 		nano::jsonconfig config (response);
 		ASSERT_FALSE (data.deserialize_json (config, should_ignore_identification_metrics));
-		nano::test::compare_default_telemetry_response_data (data, node1->network_params, node1->config.bandwidth_limit, node1->default_difficulty (nano::work_version::work_1), node1->node_id);
+		ASSERT_TRUE (nano::test::compare_telemetry (data, *node1));
 	}
 
 	request.put ("address", "[::1]");
@@ -7442,7 +6830,7 @@ TEST (rpc, telemetry_self)
 		nano::telemetry_data data;
 		nano::jsonconfig config (response);
 		ASSERT_FALSE (data.deserialize_json (config, should_ignore_identification_metrics));
-		nano::test::compare_default_telemetry_response_data (data, node1->network_params, node1->config.bandwidth_limit, node1->default_difficulty (nano::work_version::work_1), node1->node_id);
+		ASSERT_TRUE (nano::test::compare_telemetry (data, *node1));
 	}
 
 	request.put ("address", "127.0.0.1");
@@ -7451,7 +6839,7 @@ TEST (rpc, telemetry_self)
 		nano::telemetry_data data;
 		nano::jsonconfig config (response);
 		ASSERT_FALSE (data.deserialize_json (config, should_ignore_identification_metrics));
-		nano::test::compare_default_telemetry_response_data (data, node1->network_params, node1->config.bandwidth_limit, node1->default_difficulty (nano::work_version::work_1), node1->node_id);
+		ASSERT_TRUE (nano::test::compare_telemetry (data, *node1));
 	}
 
 	// Incorrect port should fail
@@ -7492,11 +6880,12 @@ TEST (rpc, confirmation_active)
 				 .build_shared ();
 	node1->process_active (send1);
 	node1->process_active (send2);
-	nano::test::blocks_confirm (*node1, { send1, send2 });
+	nano::test::start_elections (system, *node1, { send1, send2 });
 	ASSERT_EQ (2, node1->active.size ());
 	auto election (node1->active.election (send1->qualified_root ()));
 	ASSERT_NE (nullptr, election);
 	election->force_confirm ();
+	ASSERT_TIMELY (5s, election->confirmed ());
 
 	boost::property_tree::ptree request;
 	request.put ("action", "confirmation_active");

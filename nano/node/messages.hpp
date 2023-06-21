@@ -1,18 +1,23 @@
 #pragma once
 
-#include <nano/boost/asio/ip/tcp.hpp>
-#include <nano/boost/asio/ip/udp.hpp>
-#include <nano/crypto_lib/random_pool.hpp>
 #include <nano/lib/asio.hpp>
+#include <nano/lib/blocks.hpp>
+#include <nano/lib/config.hpp>
+#include <nano/lib/errors.hpp>
 #include <nano/lib/jsonconfig.hpp>
 #include <nano/lib/memory.hpp>
-#include <nano/lib/stats.hpp>
+#include <nano/lib/numbers.hpp>
+#include <nano/lib/stats_enums.hpp>
+#include <nano/lib/stream.hpp>
 #include <nano/node/common.hpp>
 #include <nano/secure/common.hpp>
-#include <nano/secure/network_filter.hpp>
 
 #include <bitset>
+#include <cstdint>
+#include <memory>
+#include <string>
 #include <variant>
+#include <vector>
 
 namespace nano
 {
@@ -74,17 +79,13 @@ public:
 	std::bitset<16> extensions;
 	static std::size_t constexpr size = sizeof (nano::networks) + sizeof (version_max) + sizeof (version_using) + sizeof (version_min) + sizeof (type) + sizeof (/* extensions */ uint16_t);
 
-	void flag_set (uint8_t);
+	void flag_set (uint8_t, bool enable = true);
 	static uint8_t constexpr bulk_pull_count_present_flag = 0;
 	static uint8_t constexpr bulk_pull_ascending_flag = 1;
 	bool bulk_pull_is_count_present () const;
 	bool bulk_pull_ascending () const;
 	static uint8_t constexpr frontier_req_only_confirmed = 1;
 	bool frontier_req_is_only_confirmed_present () const;
-	static uint8_t constexpr node_id_handshake_query_flag = 0;
-	static uint8_t constexpr node_id_handshake_response_flag = 1;
-	bool node_id_handshake_is_query () const;
-	bool node_id_handshake_is_response () const;
 
 	/** Size of the payload in bytes. For some messages, the payload size is based on header flags. */
 	std::size_t payload_length_bytes () const;
@@ -113,49 +114,6 @@ public:
 	nano::message_header header;
 };
 
-class work_pool;
-class network_constants;
-
-class message_parser final
-{
-public:
-	enum class parse_status
-	{
-		success,
-		insufficient_work,
-		invalid_header,
-		invalid_message_type,
-		invalid_keepalive_message,
-		invalid_publish_message,
-		invalid_confirm_req_message,
-		invalid_confirm_ack_message,
-		invalid_node_id_handshake_message,
-		invalid_telemetry_req_message,
-		invalid_telemetry_ack_message,
-		outdated_version,
-		duplicate_publish_message
-	};
-	message_parser (nano::network_filter &, nano::block_uniquer &, nano::vote_uniquer &, nano::message_visitor &, nano::work_pool &, nano::network_constants const & protocol);
-	void deserialize_buffer (uint8_t const *, std::size_t);
-	void deserialize_keepalive (nano::stream &, nano::message_header const &);
-	void deserialize_publish (nano::stream &, nano::message_header const &, nano::uint128_t const & = 0);
-	void deserialize_confirm_req (nano::stream &, nano::message_header const &);
-	void deserialize_confirm_ack (nano::stream &, nano::message_header const &);
-	void deserialize_node_id_handshake (nano::stream &, nano::message_header const &);
-	void deserialize_telemetry_req (nano::stream &, nano::message_header const &);
-	void deserialize_telemetry_ack (nano::stream &, nano::message_header const &);
-	bool at_end (nano::stream &);
-	nano::network_filter & publish_filter;
-	nano::block_uniquer & block_uniquer;
-	nano::vote_uniquer & vote_uniquer;
-	nano::message_visitor & visitor;
-	nano::work_pool & pool;
-	parse_status status;
-	nano::network_constants const & network;
-	std::string status_string ();
-	static std::size_t const max_safe_udp_message_size;
-};
-
 class keepalive final : public message
 {
 public:
@@ -181,6 +139,7 @@ public:
 	bool operator== (nano::publish const &) const;
 	std::shared_ptr<nano::block> block;
 	nano::uint128_t digest{ 0 };
+	std::string to_string () const;
 };
 
 class confirm_req final : public message
@@ -198,6 +157,7 @@ public:
 	std::vector<std::pair<nano::block_hash, nano::root>> roots_hashes;
 	std::string roots_string () const;
 	static std::size_t size (nano::block_type, std::size_t = 0);
+	std::string to_string () const;
 };
 
 class confirm_ack final : public message
@@ -208,8 +168,9 @@ public:
 	void serialize (nano::stream &) const override;
 	void visit (nano::message_visitor &) const override;
 	bool operator== (nano::confirm_ack const &) const;
-	std::shared_ptr<nano::vote> vote;
 	static std::size_t size (std::size_t count);
+	std::string to_string () const;
+	std::shared_ptr<nano::vote> vote;
 };
 
 class frontier_req final : public message
@@ -225,6 +186,7 @@ public:
 	uint32_t age;
 	uint32_t count;
 	static std::size_t constexpr size = sizeof (start) + sizeof (age) + sizeof (count);
+	std::string to_string () const;
 };
 
 enum class telemetry_maker : uint8_t
@@ -281,6 +243,7 @@ public:
 	void serialize (nano::stream &) const override;
 	bool deserialize (nano::stream &);
 	void visit (nano::message_visitor &) const override;
+	std::string to_string () const;
 };
 
 class telemetry_ack final : public message
@@ -294,6 +257,7 @@ public:
 	bool deserialize (nano::stream &);
 	uint16_t size () const;
 	bool is_empty_payload () const;
+	std::string to_string () const;
 	static uint16_t size (nano::message_header const &);
 	nano::telemetry_data data;
 };
@@ -315,6 +279,7 @@ public:
 	static std::size_t constexpr count_present_flag = nano::message_header::bulk_pull_count_present_flag;
 	static std::size_t constexpr extended_parameters_size = 8;
 	static std::size_t constexpr size = sizeof (start) + sizeof (end);
+	std::string to_string () const;
 };
 
 class bulk_pull_account final : public message
@@ -329,6 +294,7 @@ public:
 	nano::amount minimum_amount;
 	bulk_pull_account_flags flags;
 	static std::size_t constexpr size = sizeof (account) + sizeof (minimum_amount) + sizeof (bulk_pull_account_flags);
+	std::string to_string () const;
 };
 
 class bulk_push final : public message
@@ -343,17 +309,74 @@ public:
 
 class node_id_handshake final : public message
 {
+public: // Payload definitions
+	class query_payload
+	{
+	public:
+		void serialize (nano::stream &) const;
+		void deserialize (nano::stream &);
+
+		static std::size_t constexpr size = sizeof (nano::uint256_union);
+
+	public:
+		nano::uint256_union cookie;
+	};
+
+	class response_payload
+	{
+	public:
+		void serialize (nano::stream &) const;
+		void deserialize (nano::stream &, nano::message_header const &);
+
+		void sign (nano::uint256_union const & cookie, nano::keypair const &);
+		bool validate (nano::uint256_union const & cookie) const;
+
+	private:
+		std::vector<uint8_t> data_to_sign (nano::uint256_union const & cookie) const;
+
+	public:
+		struct v2_payload
+		{
+			nano::uint256_union salt;
+			nano::block_hash genesis;
+		};
+
+	public:
+		nano::account node_id;
+		nano::signature signature;
+		std::optional<v2_payload> v2;
+
+	public:
+		static std::size_t constexpr size_v1 = sizeof (nano::account) + sizeof (nano::signature);
+		static std::size_t constexpr size_v2 = sizeof (nano::account) + sizeof (nano::signature) + sizeof (v2_payload);
+		static std::size_t size (nano::message_header const &);
+	};
+
 public:
+	explicit node_id_handshake (nano::network_constants const &, std::optional<query_payload> query = std::nullopt, std::optional<response_payload> response = std::nullopt);
 	node_id_handshake (bool &, nano::stream &, nano::message_header const &);
-	node_id_handshake (nano::network_constants const & constants, boost::optional<nano::uint256_union>, boost::optional<std::pair<nano::account, nano::signature>>);
+
 	void serialize (nano::stream &) const override;
 	bool deserialize (nano::stream &);
+
 	void visit (nano::message_visitor &) const override;
-	bool operator== (nano::node_id_handshake const &) const;
-	boost::optional<nano::uint256_union> query;
-	boost::optional<std::pair<nano::account, nano::signature>> response;
 	std::size_t size () const;
 	static std::size_t size (nano::message_header const &);
+	std::string to_string () const;
+
+public: // Header
+	static uint8_t constexpr query_flag = 0;
+	static uint8_t constexpr response_flag = 1;
+	static uint8_t constexpr v2_flag = 2;
+
+	static bool is_query (nano::message_header const &);
+	static bool is_response (nano::message_header const &);
+	static bool is_v2 (nano::message_header const &);
+	bool is_v2 () const;
+
+public: // Payload
+	std::optional<query_payload> query;
+	std::optional<response_payload> response;
 };
 
 /**

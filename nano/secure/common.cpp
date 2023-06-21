@@ -5,8 +5,6 @@
 #include <nano/secure/common.hpp>
 #include <nano/secure/store.hpp>
 
-#include <crypto/cryptopp/words.h>
-
 #include <boost/endian/conversion.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/variant/get.hpp>
@@ -15,6 +13,7 @@
 #include <queue>
 
 #include <crypto/ed25519-donna/ed25519.h>
+#include <cryptopp/words.h>
 
 size_t constexpr nano::send_block::size;
 size_t constexpr nano::receive_block::size;
@@ -222,7 +221,7 @@ nano::keypair::keypair (std::string const & prv_a)
 	ed25519_publickey (prv.bytes.data (), pub.bytes.data ());
 }
 
-nano::account_info::account_info (nano::block_hash const & head_a, nano::account const & representative_a, nano::block_hash const & open_block_a, nano::amount const & balance_a, uint64_t modified_a, uint64_t block_count_a, nano::epoch epoch_a) :
+nano::account_info::account_info (nano::block_hash const & head_a, nano::account const & representative_a, nano::block_hash const & open_block_a, nano::amount const & balance_a, nano::seconds_t modified_a, uint64_t block_count_a, nano::epoch epoch_a) :
 	head (head_a),
 	representative (representative_a),
 	open_block (open_block_a),
@@ -347,16 +346,9 @@ nano::account const & nano::pending_key::key () const
 	return account;
 }
 
-nano::unchecked_info::unchecked_info (std::shared_ptr<nano::block> const & block_a, nano::account const & account_a, nano::signature_verification verified_a) :
+nano::unchecked_info::unchecked_info (std::shared_ptr<nano::block> const & block_a) :
 	block (block_a),
-	account (account_a),
-	modified_m (nano::seconds_since_epoch ()),
-	verified (verified_a)
-{
-}
-
-nano::unchecked_info::unchecked_info (std::shared_ptr<nano::block> const & block) :
-	unchecked_info{ block, block->account (), nano::signature_verification::unknown }
+	modified_m (nano::seconds_since_epoch ())
 {
 }
 
@@ -364,9 +356,7 @@ void nano::unchecked_info::serialize (nano::stream & stream_a) const
 {
 	debug_assert (block != nullptr);
 	nano::serialize_block (stream_a, *block);
-	nano::write (stream_a, account.bytes);
 	nano::write (stream_a, modified_m);
-	nano::write (stream_a, verified);
 }
 
 bool nano::unchecked_info::deserialize (nano::stream & stream_a)
@@ -377,9 +367,7 @@ bool nano::unchecked_info::deserialize (nano::stream & stream_a)
 	{
 		try
 		{
-			nano::read (stream_a, account.bytes);
 			nano::read (stream_a, modified_m);
-			nano::read (stream_a, verified);
 		}
 		catch (std::runtime_error const &)
 		{
@@ -672,7 +660,7 @@ std::shared_ptr<nano::vote> nano::vote_uniquer::unique (std::shared_ptr<nano::vo
 
 size_t nano::vote_uniquer::size ()
 {
-	nano::lock_guard<nano::mutex> lock (mutex);
+	nano::lock_guard<nano::mutex> lock{ mutex };
 	return votes.size ();
 }
 
@@ -752,51 +740,37 @@ void nano::generate_cache::enable_all ()
 
 nano::stat::detail nano::to_stat_detail (nano::process_result process_result)
 {
-	nano::stat::detail result;
 	switch (process_result)
 	{
 		case process_result::progress:
 			return nano::stat::detail::progress;
-			break;
 		case process_result::bad_signature:
 			return nano::stat::detail::bad_signature;
-			break;
 		case process_result::old:
 			return nano::stat::detail::old;
-			break;
 		case process_result::negative_spend:
 			return nano::stat::detail::negative_spend;
-			break;
 		case process_result::fork:
 			return nano::stat::detail::fork;
-			break;
 		case process_result::unreceivable:
 			return nano::stat::detail::unreceivable;
-			break;
 		case process_result::gap_previous:
 			return nano::stat::detail::gap_previous;
-			break;
 		case process_result::gap_source:
 			return nano::stat::detail::gap_source;
-			break;
 		case process_result::gap_epoch_open_pending:
 			return nano::stat::detail::gap_epoch_open_pending;
-			break;
 		case process_result::opened_burn_account:
 			return nano::stat::detail::opened_burn_account;
-			break;
 		case process_result::balance_mismatch:
 			return nano::stat::detail::balance_mismatch;
-			break;
 		case process_result::representative_mismatch:
 			return nano::stat::detail::representative_mismatch;
-			break;
 		case process_result::block_position:
 			return nano::stat::detail::block_position;
-			break;
 		case process_result::insufficient_work:
 			return nano::stat::detail::insufficient_work;
-			break;
 	}
-	return result;
+	debug_assert (false && "There should be always a defined nano::stat::detail that is not _last");
+	return nano::stat::detail::_last;
 }

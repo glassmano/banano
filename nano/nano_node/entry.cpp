@@ -15,6 +15,12 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
 #include <boost/range/adaptor/reversed.hpp>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+#include <boost/stacktrace.hpp>
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
 
@@ -22,25 +28,6 @@
 #include <sstream>
 
 #include <argon2.h>
-
-// Some builds (mac) fail due to "Boost.Stacktrace requires `_Unwind_Backtrace` function".
-#ifndef _WIN32
-#ifdef NANO_STACKTRACE_BACKTRACE
-#define BOOST_STACKTRACE_USE_BACKTRACE
-#endif
-#ifndef _GNU_SOURCE
-#define BEFORE_GNU_SOURCE 0
-#define _GNU_SOURCE
-#else
-#define BEFORE_GNU_SOURCE 1
-#endif
-#endif
-#include <boost/stacktrace.hpp>
-#ifndef _WIN32
-#if !BEFORE_GNU_SOURCE
-#undef _GNU_SOURCE
-#endif
-#endif
 
 namespace
 {
@@ -94,9 +81,9 @@ int main (int argc, char * const * argv)
 		("debug_verify_profile_batch", "Profile batch signature verification")
 		("debug_profile_bootstrap", "Profile bootstrap style blocks processing (at least 10GB of free storage space required)")
 		("debug_profile_sign", "Profile signature generation")
-		("debug_profile_process", "Profile active blocks processing (only for nano_dev_network)")
-		("debug_profile_votes", "Profile votes processing (only for nano_dev_network)")
-		("debug_profile_frontiers_confirmation", "Profile frontiers confirmation speed (only for nano_dev_network)")
+		("debug_profile_process", "Profile active blocks processing (only for banano_dev_network)")
+		("debug_profile_votes", "Profile votes processing (only for banano_dev_network)")
+		("debug_profile_frontiers_confirmation", "Profile frontiers confirmation speed (only for banano_dev_network)")
 		("debug_random_feed", "Generates output to RNG test suites")
 		("debug_rpc", "Read an RPC command from stdin and invoke it. Network operations will have no effect.")
 		("debug_peers", "Display peer IPv6:port connections")
@@ -439,7 +426,7 @@ int main (int argc, char * const * argv)
 			}
 
 			// Check all unchecked keys for matching frontier hashes. Indicates an issue with process_batch algorithm
-			node->unchecked.for_each (transaction, [&frontier_hashes] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
+			node->unchecked.for_each ([&frontier_hashes] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
 				auto it = frontier_hashes.find (key.key ());
 				if (it != frontier_hashes.cend ())
 				{
@@ -1012,7 +999,7 @@ int main (int argc, char * const * argv)
 				if (timer_l.after_deadline (std::chrono::seconds (15)))
 				{
 					timer_l.restart ();
-					std::cout << boost::str (boost::format ("%1% (%2%) blocks processed (unchecked), %3% remaining") % node->ledger.cache.block_count % node->unchecked.count (node->store.tx_begin_read ()) % node->block_processor.size ()) << std::endl;
+					std::cout << boost::str (boost::format ("%1% (%2%) blocks processed (unchecked), %3% remaining") % node->ledger.cache.block_count % node->unchecked.count () % node->block_processor.size ()) << std::endl;
 				}
 			}
 
@@ -1388,7 +1375,7 @@ int main (int argc, char * const * argv)
 				if (!silent)
 				{
 					static nano::mutex cerr_mutex;
-					nano::lock_guard<nano::mutex> lock (cerr_mutex);
+					nano::lock_guard<nano::mutex> lock{ cerr_mutex };
 					std::cerr << error_message_a;
 				}
 				++errors;
@@ -1399,7 +1386,7 @@ int main (int argc, char * const * argv)
 				{
 					threads.emplace_back ([&function_a, node, &mutex, &condition, &finished, &deque_a] () {
 						auto transaction (node->store.tx_begin_read ());
-						nano::unique_lock<nano::mutex> lock (mutex);
+						nano::unique_lock<nano::mutex> lock{ mutex };
 						while (!deque_a.empty () || !finished)
 						{
 							while (deque_a.empty () && !finished)
@@ -1651,7 +1638,7 @@ int main (int argc, char * const * argv)
 			for (auto i (node->store.account.begin (transaction)), n (node->store.account.end ()); i != n; ++i)
 			{
 				{
-					nano::unique_lock<nano::mutex> lock (mutex);
+					nano::unique_lock<nano::mutex> lock{ mutex };
 					if (accounts.size () > accounts_deque_overflow)
 					{
 						auto wait_ms (250 * accounts.size () / accounts_deque_overflow);
@@ -1663,7 +1650,7 @@ int main (int argc, char * const * argv)
 				condition.notify_all ();
 			}
 			{
-				nano::lock_guard<nano::mutex> lock (mutex);
+				nano::lock_guard<nano::mutex> lock{ mutex };
 				finished = true;
 			}
 			condition.notify_all ();
@@ -1762,7 +1749,7 @@ int main (int argc, char * const * argv)
 			for (auto i (node->store.pending.begin (transaction)), n (node->store.pending.end ()); i != n; ++i)
 			{
 				{
-					nano::unique_lock<nano::mutex> lock (mutex);
+					nano::unique_lock<nano::mutex> lock{ mutex };
 					if (pending.size () > pending_deque_overflow)
 					{
 						auto wait_ms (50 * pending.size () / pending_deque_overflow);
@@ -1774,7 +1761,7 @@ int main (int argc, char * const * argv)
 				condition.notify_all ();
 			}
 			{
-				nano::lock_guard<nano::mutex> lock (mutex);
+				nano::lock_guard<nano::mutex> lock{ mutex };
 				finished = true;
 			}
 			condition.notify_all ();
@@ -1806,7 +1793,7 @@ int main (int argc, char * const * argv)
 			auto begin (std::chrono::high_resolution_clock::now ());
 			uint64_t block_count (0);
 			size_t count (0);
-			std::deque<nano::unchecked_info> epoch_open_blocks;
+			std::deque<std::shared_ptr<nano::block>> epoch_open_blocks;
 			{
 				auto node_flags = nano::inactive_node_flag_defaults ();
 				nano::update_flags (node_flags, vm);
@@ -1832,12 +1819,11 @@ int main (int argc, char * const * argv)
 							{
 								std::cout << boost::str (boost::format ("%1% blocks retrieved") % count) << std::endl;
 							}
-							nano::unchecked_info unchecked_info (block, account, nano::signature_verification::unknown);
-							node.node->block_processor.add (unchecked_info);
+							node.node->block_processor.add (block);
 							if (block->type () == nano::block_type::state && block->previous ().is_zero () && source_node->ledger.is_epoch_link (block->link ()))
 							{
 								// Epoch open blocks can be rejected without processed pending blocks to account, push it later again
-								epoch_open_blocks.push_back (unchecked_info);
+								epoch_open_blocks.push_back (block);
 							}
 							// Retrieving previous block hash
 							hash = block->previous ();
@@ -1852,16 +1838,16 @@ int main (int argc, char * const * argv)
 				// Add epoch open blocks again if required
 				if (node.node->block_processor.size () == 0)
 				{
-					for (auto & unchecked_info : epoch_open_blocks)
+					for (auto & block : epoch_open_blocks)
 					{
-						node.node->block_processor.add (unchecked_info);
+						node.node->block_processor.add (block);
 					}
 				}
 				// Message each 60 seconds
 				if (timer_l.after_deadline (std::chrono::seconds (60)))
 				{
 					timer_l.restart ();
-					std::cout << boost::str (boost::format ("%1% (%2%) blocks processed (unchecked)") % node.node->ledger.cache.block_count % node.node->unchecked.count (node.node->store.tx_begin_read ())) << std::endl;
+					std::cout << boost::str (boost::format ("%1% (%2%) blocks processed (unchecked)") % node.node->ledger.cache.block_count % node.node->unchecked.count ()) << std::endl;
 				}
 			}
 
@@ -1912,7 +1898,7 @@ int main (int argc, char * const * argv)
 #ifdef BOOST_WINDOWS
 			if (!nano::event_log_reg_entry_exists () && !nano::is_windows_elevated ())
 			{
-				std::cerr << "The event log requires the HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\EventLog\\Banano\\Banano registry entry, run again as administator to create it.\n";
+				std::cerr << "The event log requires the HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\EventLog\\Nano\\Nano registry entry, run again as administator to create it.\n";
 				return 1;
 			}
 #endif

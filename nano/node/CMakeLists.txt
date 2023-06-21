@@ -22,6 +22,14 @@ add_library(
   bandwidth_limiter.cpp
   block_arrival.hpp
   block_arrival.cpp
+  block_broadcast.cpp
+  block_broadcast.hpp
+  block_publisher.cpp
+  block_publisher.hpp
+  gap_tracker.cpp
+  gap_tracker.hpp
+  blocking_observer.cpp
+  blocking_observer.hpp
   blockprocessor.hpp
   blockprocessor.cpp
   bootstrap/block_deserializer.hpp
@@ -32,6 +40,8 @@ add_library(
   bootstrap/bootstrap_bulk_pull.cpp
   bootstrap/bootstrap_bulk_push.hpp
   bootstrap/bootstrap_bulk_push.cpp
+  bootstrap/bootstrap_config.hpp
+  bootstrap/bootstrap_config.cpp
   bootstrap/bootstrap_connections.hpp
   bootstrap/bootstrap_connections.cpp
   bootstrap/bootstrap_frontier.hpp
@@ -44,6 +54,17 @@ add_library(
   bootstrap/bootstrap.cpp
   bootstrap/bootstrap_server.hpp
   bootstrap/bootstrap_server.cpp
+  bootstrap_ascending/common.hpp
+  bootstrap_ascending/throttle.hpp
+  bootstrap_ascending/throttle.cpp
+  bootstrap_ascending/account_sets.hpp
+  bootstrap_ascending/account_sets.cpp
+  bootstrap_ascending/iterators.hpp
+  bootstrap_ascending/iterators.cpp
+  bootstrap_ascending/peer_scoring.hpp
+  bootstrap_ascending/peer_scoring.cpp
+  bootstrap_ascending/service.hpp
+  bootstrap_ascending/service.cpp
   cli.hpp
   cli.cpp
   common.hpp
@@ -64,8 +85,11 @@ add_library(
   distributed_work_factory.cpp
   election.hpp
   election.cpp
+  election_insertion_result.hpp
   election_scheduler.hpp
   election_scheduler.cpp
+  epoch_upgrader.hpp
+  epoch_upgrader.cpp
   gap_cache.hpp
   gap_cache.cpp
   hinted_scheduler.hpp
@@ -112,8 +136,6 @@ add_library(
   lmdb/pruned_store.cpp
   lmdb/version_store.hpp
   lmdb/version_store.cpp
-  lmdb/unchecked_store.hpp
-  lmdb/unchecked_store.cpp
   lmdb/lmdb.hpp
   lmdb/lmdb.cpp
   lmdb/lmdb_env.hpp
@@ -141,14 +163,16 @@ add_library(
   openclconfig.cpp
   openclwork.hpp
   openclwork.cpp
+  optimistic_scheduler.hpp
+  optimistic_scheduler.cpp
   peer_exclusion.hpp
   peer_exclusion.cpp
   portmapping.hpp
   portmapping.cpp
   prioritization.cpp
   prioritization.hpp
-  node_pow_server_config.hpp
-  node_pow_server_config.cpp
+  process_live_dispatcher.cpp
+  process_live_dispatcher.hpp
   repcrawler.hpp
   repcrawler.cpp
   request_aggregator.hpp
@@ -171,8 +195,6 @@ add_library(
   rocksdb/pending_store.cpp
   rocksdb/pruned_store.hpp
   rocksdb/pruned_store.cpp
-  rocksdb/unchecked_store.hpp
-  rocksdb/unchecked_store.cpp
   rocksdb/version_store.hpp
   rocksdb/version_store.cpp
   rocksdb/rocksdb.hpp
@@ -182,26 +204,26 @@ add_library(
   rocksdb/rocksdb_txn.cpp
   signatures.hpp
   signatures.cpp
-  socket.hpp
-  socket.cpp
   state_block_signature_verification.hpp
   state_block_signature_verification.cpp
   telemetry.hpp
   telemetry.cpp
+  transport/channel.hpp
+  transport/channel.cpp
   transport/fake.hpp
   transport/fake.cpp
   transport/inproc.hpp
   transport/inproc.cpp
   transport/message_deserializer.hpp
   transport/message_deserializer.cpp
+  transport/socket.hpp
+  transport/socket.cpp
   transport/tcp.hpp
   transport/tcp.cpp
   transport/tcp_server.hpp
   transport/tcp_server.cpp
   transport/transport.hpp
   transport/transport.cpp
-  transport/udp.hpp
-  transport/udp.cpp
   unchecked_map.cpp
   unchecked_map.hpp
   vote_cache.hpp
@@ -236,21 +258,18 @@ target_link_libraries(
   libminiupnpc-static
   argon2
   lmdb
+  Boost::beast
   Boost::filesystem
   Boost::log_setup
   Boost::log
   Boost::program_options
+  Boost::stacktrace
   Boost::system
   Boost::thread
-  Boost::boost
   rocksdb
   ${DISKHASH}
   ${CMAKE_DL_LIBS}
   ${psapi_lib})
-
-if(NANO_STACKTRACE_BACKTRACE)
-  target_link_libraries(node backtrace)
-endif()
 
 target_compile_definitions(
   node PRIVATE -DTAG_VERSION_STRING=${TAG_VERSION_STRING}
@@ -259,3 +278,9 @@ target_compile_definitions(
 # This ensures that any changes to Flatbuffers source files will cause a
 # regeneration of any C++ header files.
 add_dependencies(node ipc_flatbuffers_lib)
+
+include_directories(${CMAKE_SOURCE_DIR}/submodules)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/cpptoml/include)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/lmdb)
+include_directories(
+  ${CMAKE_SOURCE_DIR}/submodules/nano-pow-server/deps/cpptoml/include)

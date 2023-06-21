@@ -59,6 +59,7 @@ add_library(
   processing_queue.hpp
   rate_limiting.hpp
   rate_limiting.cpp
+  relaxed_atomic.hpp
   rep_weights.hpp
   rep_weights.cpp
   rocksdbconfig.hpp
@@ -68,9 +69,15 @@ add_library(
   rpcconfig.cpp
   signal_manager.hpp
   signal_manager.cpp
+  stacktrace.hpp
+  stacktrace.cpp
   stats.hpp
   stats.cpp
+  stats_enums.hpp
+  stats_enums.cpp
   stream.hpp
+  thread_roles.hpp
+  thread_roles.cpp
   threading.hpp
   threading.cpp
   timer.hpp
@@ -86,6 +93,11 @@ add_library(
   work.hpp
   work.cpp)
 
+include_directories(${CMAKE_SOURCE_DIR}/submodules)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/cpptoml/include)
+include_directories(
+  ${CMAKE_SOURCE_DIR}/submodules/nano-pow-server/deps/cpptoml/include)
+
 target_link_libraries(
   nano_lib
   ed25519
@@ -95,8 +107,14 @@ target_link_libraries(
   ipc_flatbuffers_lib
   ${CRYPTOPP_LIBRARY}
   ${CMAKE_DL_LIBS}
-  Boost::boost
-  Boost::program_options)
+  Boost::asio
+  Boost::circular_buffer
+  Boost::dll
+  Boost::log_setup
+  Boost::log
+  Boost::multiprecision
+  Boost::program_options
+  Boost::stacktrace)
 
 if(NANO_STACKTRACE_BACKTRACE)
   target_link_libraries(nano_lib backtrace)

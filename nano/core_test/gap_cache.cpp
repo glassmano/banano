@@ -35,7 +35,7 @@ TEST (gap_cache, add_existing)
 				  .work (5)
 				  .build_shared ();
 	cache.add (block1->hash ());
-	nano::unique_lock<nano::mutex> lock (cache.mutex);
+	nano::unique_lock<nano::mutex> lock{ cache.mutex };
 	auto existing1 (cache.blocks.get<1> ().find (block1->hash ()));
 	ASSERT_NE (cache.blocks.get<1> ().end (), existing1);
 	auto arrival (existing1->arrival);
@@ -63,7 +63,7 @@ TEST (gap_cache, comparison)
 				  .work (5)
 				  .build_shared ();
 	cache.add (block1->hash ());
-	nano::unique_lock<nano::mutex> lock (cache.mutex);
+	nano::unique_lock<nano::mutex> lock{ cache.mutex };
 	auto existing1 (cache.blocks.get<1> ().find (block1->hash ()));
 	ASSERT_NE (cache.blocks.get<1> ().end (), existing1);
 	auto arrival (existing1->arrival);
@@ -111,18 +111,17 @@ TEST (gap_cache, gap_bootstrap)
 	ASSERT_EQ (nano::dev::constants.genesis_amount - 100, node1.balance (nano::dev::genesis->account ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, node2.balance (nano::dev::genesis->account ()));
 	// Confirm send block, allowing voting on the upcoming block
-	node1.block_confirm (send);
-	auto election = node1.active.election (send->qualified_root ());
+	auto election = nano::test::start_election (system, node1, send->hash ());
 	ASSERT_NE (nullptr, election);
 	election->force_confirm ();
-	ASSERT_TIMELY (2s, node1.block_confirmed (send->hash ()));
+	ASSERT_TIMELY (5s, node1.block_confirmed (send->hash ()));
 	node1.active.erase (*send);
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
 	auto latest_block (system.wallet (0)->send_action (nano::dev::genesis_key.pub, key.pub, 100));
 	ASSERT_NE (nullptr, latest_block);
 	ASSERT_EQ (nano::dev::constants.genesis_amount - 200, node1.balance (nano::dev::genesis->account ()));
 	ASSERT_EQ (nano::dev::constants.genesis_amount, node2.balance (nano::dev::genesis->account ()));
-	ASSERT_TIMELY (10s, node2.balance (nano::dev::genesis->account ()) == nano::dev::constants.genesis_amount - 200);
+	ASSERT_TIMELY (5s, node2.balance (nano::dev::genesis->account ()) == nano::dev::constants.genesis_amount - 200);
 }
 
 TEST (gap_cache, two_dependencies)

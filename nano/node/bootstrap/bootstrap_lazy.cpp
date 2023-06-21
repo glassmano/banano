@@ -2,7 +2,6 @@
 #include <nano/node/bootstrap/bootstrap_lazy.hpp>
 #include <nano/node/common.hpp>
 #include <nano/node/node.hpp>
-#include <nano/node/transport/tcp.hpp>
 
 #include <boost/format.hpp>
 
@@ -16,25 +15,35 @@ constexpr std::size_t nano::bootstrap_limits::lazy_blocks_restart_limit;
 nano::bootstrap_attempt_lazy::bootstrap_attempt_lazy (std::shared_ptr<nano::node> const & node_a, uint64_t incremental_id_a, std::string const & id_a) :
 	nano::bootstrap_attempt (node_a, nano::bootstrap_mode::lazy, incremental_id_a, id_a)
 {
-	node->bootstrap_initiator.notify_listeners (true);
+	node_a->bootstrap_initiator.notify_listeners (true);
 }
 
 nano::bootstrap_attempt_lazy::~bootstrap_attempt_lazy ()
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	debug_assert (lazy_blocks.size () == lazy_blocks_count);
 	node->bootstrap_initiator.notify_listeners (false);
 }
 
-bool nano::bootstrap_attempt_lazy::lazy_start (nano::hash_or_account const & hash_or_account_a, bool confirmed)
+bool nano::bootstrap_attempt_lazy::lazy_start (nano::hash_or_account const & hash_or_account_a)
 {
-	nano::unique_lock<nano::mutex> lock (mutex);
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return false;
+	}
+	nano::unique_lock<nano::mutex> lock{ mutex };
 	bool inserted (false);
 	// Add start blocks, limit 1024 (4k with disabled legacy bootstrap)
 	std::size_t max_keys (node->flags.disable_legacy_bootstrap ? 4 * 1024 : 1024);
 	if (lazy_keys.size () < max_keys && lazy_keys.find (hash_or_account_a.as_block_hash ()) == lazy_keys.end () && !lazy_blocks_processed (hash_or_account_a.as_block_hash ()))
 	{
 		lazy_keys.insert (hash_or_account_a.as_block_hash ());
-		lazy_pulls.emplace_back (hash_or_account_a, confirmed ? lazy_retry_limit_confirmed () : node->network_params.bootstrap.lazy_retry_limit);
+		lazy_pulls.emplace_back (hash_or_account_a, node->network_params.bootstrap.lazy_retry_limit);
 		lock.unlock ();
 		condition.notify_all ();
 		inserted = true;
@@ -54,14 +63,19 @@ void nano::bootstrap_attempt_lazy::lazy_add (nano::hash_or_account const & hash_
 
 void nano::bootstrap_attempt_lazy::lazy_add (nano::pull_info const & pull_a)
 {
-	debug_assert (pull_a.account_or_head == pull_a.head);
-	nano::lock_guard<nano::mutex> lock (mutex);
+	debug_assert (pull_a.account_or_head.as_block_hash () == pull_a.head);
+	nano::lock_guard<nano::mutex> lock{ mutex };
 	lazy_add (pull_a.account_or_head, pull_a.retry_limit);
 }
 
 void nano::bootstrap_attempt_lazy::lazy_requeue (nano::block_hash const & hash_a, nano::block_hash const & previous_a)
 {
-	nano::unique_lock<nano::mutex> lock (mutex);
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
+	nano::unique_lock<nano::mutex> lock{ mutex };
 	// Add only known blocks
 	if (lazy_blocks_processed (hash_a))
 	{
@@ -73,6 +87,11 @@ void nano::bootstrap_attempt_lazy::lazy_requeue (nano::block_hash const & hash_a
 
 uint32_t nano::bootstrap_attempt_lazy::lazy_batch_size ()
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return 0;
+	}
 	auto result (node->network_params.bootstrap.lazy_max_pull_blocks);
 	if (total_blocks > nano::bootstrap_limits::lazy_batch_pull_count_resize_blocks_limit && lazy_blocks_count != 0)
 	{
@@ -92,6 +111,11 @@ uint32_t nano::bootstrap_attempt_lazy::lazy_batch_size ()
 
 void nano::bootstrap_attempt_lazy::lazy_pull_flush (nano::unique_lock<nano::mutex> & lock_a)
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	static std::size_t const max_pulls (static_cast<std::size_t> (nano::bootstrap_limits::bootstrap_connection_scale_target_blocks) * 3);
 	if (pulling < max_pulls)
 	{
@@ -127,6 +151,11 @@ void nano::bootstrap_attempt_lazy::lazy_pull_flush (nano::unique_lock<nano::mute
 
 bool nano::bootstrap_attempt_lazy::lazy_finished ()
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return true;
+	}
 	debug_assert (!mutex.try_lock ());
 	if (stopped)
 	{
@@ -164,6 +193,11 @@ bool nano::bootstrap_attempt_lazy::lazy_finished ()
 
 bool nano::bootstrap_attempt_lazy::lazy_has_expired () const
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return true;
+	}
 	bool result (false);
 	// Max 30 minutes run with enabled legacy bootstrap
 	static std::chrono::minutes const max_lazy_time (node->flags.disable_legacy_bootstrap ? 7 * 24 * 60 : 30);
@@ -180,11 +214,16 @@ bool nano::bootstrap_attempt_lazy::lazy_has_expired () const
 
 void nano::bootstrap_attempt_lazy::run ()
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	debug_assert (started);
 	debug_assert (!node->flags.disable_lazy_bootstrap);
 	node->bootstrap_initiator.connections->populate_connections (false);
 	lazy_start_time = std::chrono::steady_clock::now ();
-	nano::unique_lock<nano::mutex> lock (mutex);
+	nano::unique_lock<nano::mutex> lock{ mutex };
 	while ((still_pulling () || !lazy_finished ()) && !lazy_has_expired ())
 	{
 		unsigned iterations (0);
@@ -239,9 +278,14 @@ bool nano::bootstrap_attempt_lazy::process_block (std::shared_ptr<nano::block> c
 
 bool nano::bootstrap_attempt_lazy::process_block_lazy (std::shared_ptr<nano::block> const & block_a, nano::account const & known_account_a, uint64_t pull_blocks_processed, nano::bulk_pull::count_t max_blocks, unsigned retry_limit)
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return true;
+	}
 	bool stop_pull (false);
 	auto hash (block_a->hash ());
-	nano::unique_lock<nano::mutex> lock (mutex);
+	nano::unique_lock<nano::mutex> lock{ mutex };
 	// Processing new blocks
 	if (!lazy_blocks_processed (hash))
 	{
@@ -267,8 +311,7 @@ bool nano::bootstrap_attempt_lazy::process_block_lazy (std::shared_ptr<nano::blo
 		}
 		lazy_block_state_backlog_check (block_a, hash);
 		lock.unlock ();
-		nano::unchecked_info info (block_a, known_account_a, nano::signature_verification::unknown);
-		node->block_processor.add (info);
+		node->block_processor.add (block_a);
 	}
 	// Force drop lazy bootstrap connection for long bulk_pull
 	if (pull_blocks_processed > max_blocks)
@@ -280,6 +323,11 @@ bool nano::bootstrap_attempt_lazy::process_block_lazy (std::shared_ptr<nano::blo
 
 void nano::bootstrap_attempt_lazy::lazy_block_state (std::shared_ptr<nano::block> const & block_a, unsigned retry_limit)
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	std::shared_ptr<nano::state_block> block_l (std::static_pointer_cast<nano::state_block> (block_a));
 	if (block_l != nullptr)
 	{
@@ -333,6 +381,11 @@ void nano::bootstrap_attempt_lazy::lazy_block_state (std::shared_ptr<nano::block
 
 void nano::bootstrap_attempt_lazy::lazy_block_state_backlog_check (std::shared_ptr<nano::block> const & block_a, nano::block_hash const & hash_a)
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	// Search unknown state blocks balances
 	auto find_state (lazy_state_backlog.find (hash_a));
 	if (find_state != lazy_state_backlog.end ())
@@ -358,6 +411,11 @@ void nano::bootstrap_attempt_lazy::lazy_block_state_backlog_check (std::shared_p
 
 void nano::bootstrap_attempt_lazy::lazy_backlog_cleanup ()
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	uint64_t read_count (0);
 	auto transaction (node->store.tx_begin_read ());
 	for (auto it (lazy_state_backlog.begin ()), end (lazy_state_backlog.end ()); it != end && !stopped;)
@@ -423,8 +481,13 @@ bool nano::bootstrap_attempt_lazy::lazy_blocks_processed (nano::block_hash const
 
 bool nano::bootstrap_attempt_lazy::lazy_processed_or_exists (nano::block_hash const & hash_a)
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return true;
+	}
 	bool result (false);
-	nano::unique_lock<nano::mutex> lock (mutex);
+	nano::unique_lock<nano::mutex> lock{ mutex };
 	if (lazy_blocks_processed (hash_a))
 	{
 		result = true;
@@ -440,21 +503,9 @@ bool nano::bootstrap_attempt_lazy::lazy_processed_or_exists (nano::block_hash co
 	return result;
 }
 
-unsigned nano::bootstrap_attempt_lazy::lazy_retry_limit_confirmed ()
-{
-	debug_assert (!mutex.try_lock ());
-	if (total_blocks % 1024 == 512 || peer_count == 0)
-	{
-		// Prevent too frequent network locks
-		peer_count = node->network.size ();
-	}
-	auto multiplier (node->flags.disable_legacy_bootstrap ? 2 : 1.25);
-	return multiplier * std::max (node->network_params.bootstrap.lazy_retry_limit, 2 * nano::narrow_cast<unsigned> (peer_count));
-}
-
 void nano::bootstrap_attempt_lazy::get_information (boost::property_tree::ptree & tree_a)
 {
-	nano::lock_guard<nano::mutex> lock (mutex);
+	nano::lock_guard<nano::mutex> lock{ mutex };
 	tree_a.put ("lazy_blocks", std::to_string (lazy_blocks.size ()));
 	tree_a.put ("lazy_state_backlog", std::to_string (lazy_state_backlog.size ()));
 	tree_a.put ("lazy_balances", std::to_string (lazy_balances.size ()));
@@ -470,16 +521,26 @@ void nano::bootstrap_attempt_lazy::get_information (boost::property_tree::ptree 
 nano::bootstrap_attempt_wallet::bootstrap_attempt_wallet (std::shared_ptr<nano::node> const & node_a, uint64_t incremental_id_a, std::string id_a) :
 	nano::bootstrap_attempt (node_a, nano::bootstrap_mode::wallet_lazy, incremental_id_a, id_a)
 {
-	node->bootstrap_initiator.notify_listeners (true);
+	node_a->bootstrap_initiator.notify_listeners (true);
 }
 
 nano::bootstrap_attempt_wallet::~bootstrap_attempt_wallet ()
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	node->bootstrap_initiator.notify_listeners (false);
 }
 
 void nano::bootstrap_attempt_wallet::request_pending (nano::unique_lock<nano::mutex> & lock_a)
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	lock_a.unlock ();
 	auto connection_l (node->bootstrap_initiator.connections->connection (shared_from_this ()));
 	lock_a.lock ();
@@ -502,7 +563,7 @@ void nano::bootstrap_attempt_wallet::requeue_pending (nano::account const & acco
 {
 	auto account (account_a);
 	{
-		nano::lock_guard<nano::mutex> lock (mutex);
+		nano::lock_guard<nano::mutex> lock{ mutex };
 		wallet_accounts.push_front (account);
 	}
 	condition.notify_all ();
@@ -511,7 +572,7 @@ void nano::bootstrap_attempt_wallet::requeue_pending (nano::account const & acco
 void nano::bootstrap_attempt_wallet::wallet_start (std::deque<nano::account> & accounts_a)
 {
 	{
-		nano::lock_guard<nano::mutex> lock (mutex);
+		nano::lock_guard<nano::mutex> lock{ mutex };
 		wallet_accounts.swap (accounts_a);
 	}
 	condition.notify_all ();
@@ -528,12 +589,17 @@ bool nano::bootstrap_attempt_wallet::wallet_finished ()
 
 void nano::bootstrap_attempt_wallet::run ()
 {
+	auto node = this->node.lock ();
+	if (!node)
+	{
+		return;
+	}
 	debug_assert (started);
 	debug_assert (!node->flags.disable_wallet_bootstrap);
 	node->bootstrap_initiator.connections->populate_connections (false);
 	auto start_time (std::chrono::steady_clock::now ());
 	auto max_time (std::chrono::minutes (10));
-	nano::unique_lock<nano::mutex> lock (mutex);
+	nano::unique_lock<nano::mutex> lock{ mutex };
 	while (wallet_finished () && std::chrono::steady_clock::now () - start_time < max_time)
 	{
 		if (!wallet_accounts.empty ())
@@ -556,12 +622,12 @@ void nano::bootstrap_attempt_wallet::run ()
 
 std::size_t nano::bootstrap_attempt_wallet::wallet_size ()
 {
-	nano::lock_guard<nano::mutex> lock (mutex);
+	nano::lock_guard<nano::mutex> lock{ mutex };
 	return wallet_accounts.size ();
 }
 
 void nano::bootstrap_attempt_wallet::get_information (boost::property_tree::ptree & tree_a)
 {
-	nano::lock_guard<nano::mutex> lock (mutex);
+	nano::lock_guard<nano::mutex> lock{ mutex };
 	tree_a.put ("wallet_accounts", std::to_string (wallet_accounts.size ()));
 }

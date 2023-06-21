@@ -116,7 +116,7 @@ TEST (ledger, deep_account_compute)
 	nano::logger_mt logger;
 	auto store = nano::make_store (logger, nano::unique_path (), nano::dev::constants);
 	ASSERT_FALSE (store->init_error ());
-	nano::stat stats;
+	nano::stats stats;
 	nano::ledger ledger (*store, stats, nano::dev::constants);
 	auto transaction (store->tx_begin_write ());
 	store->initialize (transaction, ledger.cache, ledger.constants);
@@ -311,7 +311,7 @@ TEST (node, fork_storm)
 			}
 			else
 			{
-				nano::unique_lock<nano::mutex> lock (node_a->active.mutex);
+				nano::unique_lock<nano::mutex> lock{ node_a->active.mutex };
 				auto election = node_a->active.roots.begin ()->election;
 				lock.unlock ();
 				if (election->votes ().size () == 1)
@@ -510,7 +510,7 @@ TEST (store, unchecked_load)
 		node.unchecked.put (i, block);
 	}
 	// Waits for all the blocks to get saved in the database
-	ASSERT_TIMELY (8000s, num_unchecked == node.unchecked.count (node.store.tx_begin_read ()));
+	ASSERT_TIMELY (8000s, num_unchecked == node.unchecked.count ());
 }
 
 TEST (store, vote_load)
@@ -907,17 +907,18 @@ TEST (confirmation_height, long_chains)
 	ASSERT_TIMELY (30s, node->ledger.block_confirmed (node->store.tx_begin_read (), receive1->hash ()));
 
 	auto transaction (node->store.tx_begin_read ());
-	nano::account_info account_info;
-	ASSERT_FALSE (node->store.account.get (transaction, nano::dev::genesis_key.pub, account_info));
+	auto info = node->ledger.account_info (transaction, nano::dev::genesis_key.pub);
+	ASSERT_TRUE (info);
 	nano::confirmation_height_info confirmation_height_info;
 	ASSERT_FALSE (node->store.confirmation_height.get (transaction, nano::dev::genesis_key.pub, confirmation_height_info));
 	ASSERT_EQ (num_blocks + 2, confirmation_height_info.height);
-	ASSERT_EQ (num_blocks + 3, account_info.block_count); // Includes the unpocketed send
+	ASSERT_EQ (num_blocks + 3, info->block_count); // Includes the unpocketed send
 
-	ASSERT_FALSE (node->store.account.get (transaction, key1.pub, account_info));
+	info = node->ledger.account_info (transaction, key1.pub);
+	ASSERT_TRUE (info);
 	ASSERT_FALSE (node->store.confirmation_height.get (transaction, key1.pub, confirmation_height_info));
 	ASSERT_EQ (num_blocks + 1, confirmation_height_info.height);
-	ASSERT_EQ (num_blocks + 1, account_info.block_count);
+	ASSERT_EQ (num_blocks + 1, info->block_count);
 
 	size_t cemented_count = 0;
 	for (auto i (node->ledger.store.confirmation_height.begin (transaction)), n (node->ledger.store.confirmation_height.end ()); i != n; ++i)
@@ -1223,7 +1224,7 @@ TEST (confirmation_height, many_accounts_send_receive_self_no_elections)
 	auto path (nano::unique_path ());
 	auto store = nano::make_store (logger, path, nano::dev::constants);
 	ASSERT_TRUE (!store->init_error ());
-	nano::stat stats;
+	nano::stats stats;
 	nano::ledger ledger (*store, stats, nano::dev::constants);
 	nano::write_database_queue write_database_queue (false);
 	nano::work_pool pool{ nano::dev::network_params.network, std::numeric_limits<unsigned>::max () };
@@ -1399,14 +1400,13 @@ TEST (telemetry, ongoing_requests)
 {
 	nano::test::system system;
 	nano::node_flags node_flags;
-	node_flags.disable_initial_telemetry_requests = true;
 	auto node_client = system.add_node (node_flags);
 	auto node_server = system.add_node (node_flags);
 
 	nano::test::wait_peer_connections (system);
 
-	ASSERT_EQ (0, node_client->telemetry->telemetry_data_size ());
-	ASSERT_EQ (0, node_server->telemetry->telemetry_data_size ());
+	ASSERT_EQ (0, node_client->telemetry.size ());
+	ASSERT_EQ (0, node_server->telemetry.size ());
 	ASSERT_EQ (0, node_client->stats.count (nano::stat::type::bootstrap, nano::stat::detail::telemetry_ack, nano::stat::dir::in));
 	ASSERT_EQ (0, node_client->stats.count (nano::stat::type::bootstrap, nano::stat::detail::telemetry_req, nano::stat::dir::out));
 
@@ -1414,7 +1414,7 @@ TEST (telemetry, ongoing_requests)
 
 	// Wait till the next ongoing will be called, and add a 1s buffer for the actual processing
 	auto time = std::chrono::steady_clock::now ();
-	ASSERT_TIMELY (10s, std::chrono::steady_clock::now () >= (time + node_client->telemetry->cache_plus_buffer_cutoff_time () + 1s));
+	ASSERT_TIMELY (10s, std::chrono::steady_clock::now () >= (time + nano::dev::network_params.network.telemetry_cache_cutoff + 1s));
 
 	ASSERT_EQ (2, node_client->stats.count (nano::stat::type::message, nano::stat::detail::telemetry_ack, nano::stat::dir::in));
 	ASSERT_EQ (2, node_client->stats.count (nano::stat::type::message, nano::stat::detail::telemetry_req, nano::stat::dir::in));
@@ -1432,7 +1432,6 @@ namespace transport
 	{
 		nano::test::system system;
 		nano::node_flags node_flags;
-		node_flags.disable_initial_telemetry_requests = true;
 		auto const num_nodes = 4;
 		for (int i = 0; i < num_nodes; ++i)
 		{
@@ -1468,10 +1467,12 @@ namespace transport
 
 							// Pick first peer to be consistent
 							auto peer = data.node->network.tcp_channels.channels[0].channel;
-							data.node->telemetry->get_metrics_single_peer_async (peer, [&shared_data, &data, &node_data] (nano::telemetry_data_response const & telemetry_data_response_a) {
-								ASSERT_FALSE (telemetry_data_response_a.error);
-								callback_process (shared_data, data, node_data, telemetry_data_response_a.telemetry_data.timestamp);
-							});
+
+							auto maybe_telemetry = data.node->telemetry.get_telemetry (peer->get_endpoint ());
+							if (maybe_telemetry)
+							{
+								callback_process (shared_data, data, node_data, maybe_telemetry->timestamp);
+							}
 						}
 						std::this_thread::sleep_for (1ms);
 					}
@@ -1500,7 +1501,6 @@ TEST (telemetry, under_load)
 	nano::node_config node_config (nano::test::get_available_port (), system.logging);
 	node_config.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
 	nano::node_flags node_flags;
-	node_flags.disable_initial_telemetry_requests = true;
 	auto node = system.add_node (node_config, node_flags);
 	node_config.peering_port = nano::test::get_available_port ();
 	auto node1 = system.add_node (node_config, node_flags);
@@ -1588,25 +1588,20 @@ TEST (telemetry, cache_read_and_timeout)
 	nano::test::system system;
 	nano::node_flags node_flags;
 	node_flags.disable_ongoing_telemetry_requests = true;
-	node_flags.disable_initial_telemetry_requests = true;
 	auto node_client = system.add_node (node_flags);
 	auto node_server = system.add_node (node_flags);
 
 	nano::test::wait_peer_connections (system);
 
 	// Request telemetry metrics
-	nano::telemetry_data telemetry_data;
-	{
-		std::atomic<bool> done{ false };
-		auto channel = node_client->network.find_node_id (node_server->get_node_id ());
-		node_client->telemetry->get_metrics_single_peer_async (channel, [&done, &telemetry_data] (nano::telemetry_data_response const & response_a) {
-			telemetry_data = response_a.telemetry_data;
-			done = true;
-		});
-		ASSERT_TIMELY (10s, done);
-	}
+	std::optional<nano::telemetry_data> telemetry_data;
+	auto channel = node_client->network.find_node_id (node_server->get_node_id ());
+	ASSERT_NE (channel, nullptr);
 
-	auto responses = node_client->telemetry->get_metrics ();
+	node_client->telemetry.trigger ();
+	ASSERT_TIMELY (5s, telemetry_data = node_client->telemetry.get_telemetry (channel->get_endpoint ()));
+
+	auto responses = node_client->telemetry.get_all_telemetries ();
 	ASSERT_TRUE (!responses.empty ());
 	ASSERT_EQ (telemetry_data, responses.begin ()->second);
 
@@ -1619,24 +1614,17 @@ TEST (telemetry, cache_read_and_timeout)
 	ASSERT_EQ (0, node_server->stats.count (nano::stat::type::message, nano::stat::detail::telemetry_req, nano::stat::dir::out));
 
 	// wait until the telemetry data times out
-	ASSERT_TIMELY (node_server->telemetry->cache_plus_buffer_cutoff_time (), node_client->telemetry->get_metrics ().empty ());
+	ASSERT_TIMELY (5s, node_client->telemetry.get_all_telemetries ().empty ());
 
 	// the telemetry data cache should be empty now
-	responses = node_client->telemetry->get_metrics ();
+	responses = node_client->telemetry.get_all_telemetries ();
 	ASSERT_TRUE (responses.empty ());
 
 	// Request telemetry metrics again
-	{
-		std::atomic<bool> done{ false };
-		auto channel = node_client->network.find_node_id (node_server->get_node_id ());
-		node_client->telemetry->get_metrics_single_peer_async (channel, [&done, &telemetry_data] (nano::telemetry_data_response const & response_a) {
-			telemetry_data = response_a.telemetry_data;
-			done = true;
-		});
-		ASSERT_TIMELY (10s, done);
-	}
+	node_client->telemetry.trigger ();
+	ASSERT_TIMELY (5s, telemetry_data = node_client->telemetry.get_telemetry (channel->get_endpoint ()));
 
-	responses = node_client->telemetry->get_metrics ();
+	responses = node_client->telemetry.get_all_telemetries ();
 	ASSERT_TRUE (!responses.empty ());
 	ASSERT_EQ (telemetry_data, responses.begin ()->second);
 
@@ -1652,8 +1640,6 @@ TEST (telemetry, many_nodes)
 {
 	nano::test::system system;
 	nano::node_flags node_flags;
-	node_flags.disable_ongoing_telemetry_requests = true;
-	node_flags.disable_initial_telemetry_requests = true;
 	node_flags.disable_request_loop = true;
 	// The telemetry responses can timeout if using a large number of nodes under sanitizers, so lower the number.
 	auto const num_nodes = nano::memory_intensive_instrumentation () ? 4 : 10;
@@ -1705,27 +1691,17 @@ TEST (telemetry, many_nodes)
 	// This is the node which will request metrics from all other nodes
 	auto node_client = system.nodes.front ();
 
-	nano::mutex mutex;
 	std::vector<nano::telemetry_data> telemetry_datas;
 	auto peers = node_client->network.list (num_nodes - 1);
 	ASSERT_EQ (peers.size (), num_nodes - 1);
 	for (auto const & peer : peers)
 	{
-		node_client->telemetry->get_metrics_single_peer_async (peer, [&telemetry_datas, &mutex] (nano::telemetry_data_response const & response_a) {
-			ASSERT_FALSE (response_a.error);
-			nano::lock_guard<nano::mutex> guard (mutex);
-			telemetry_datas.push_back (response_a.telemetry_data);
-		});
+		std::optional<nano::telemetry_data> telemetry_data;
+		ASSERT_TIMELY (5s, telemetry_data = node_client->telemetry.get_telemetry (peer->get_endpoint ()));
+		telemetry_datas.push_back (*telemetry_data);
 	}
 
-	system.deadline_set (20s);
-	nano::unique_lock<nano::mutex> lk (mutex);
-	while (telemetry_datas.size () != num_nodes - 1)
-	{
-		lk.unlock ();
-		ASSERT_NO_ERROR (system.poll ());
-		lk.lock ();
-	}
+	ASSERT_EQ (telemetry_datas.size (), num_nodes - 1);
 
 	// Check the metrics
 	for (auto & data : telemetry_datas)
@@ -1913,9 +1889,9 @@ TEST (node, mass_epoch_upgrader)
 		{
 			auto const pre_upgrade = node.ledger.cache.block_count.load ();
 			auto upgrade_count = std::min<size_t> (batch_size, block_count_before + total_to_upgrade - pre_upgrade);
-			ASSERT_FALSE (node.epoch_upgrader (epoch_signer.prv, nano::epoch::epoch_1, upgrade_count, threads));
+			ASSERT_FALSE (node.epoch_upgrader.start (epoch_signer.prv, nano::epoch::epoch_1, upgrade_count, threads));
 			// Already ongoing - should fail
-			ASSERT_TRUE (node.epoch_upgrader (epoch_signer.prv, nano::epoch::epoch_1, upgrade_count, threads));
+			ASSERT_TRUE (node.epoch_upgrader.start (epoch_signer.prv, nano::epoch::epoch_1, upgrade_count, threads));
 			system.deadline_set (60s);
 			while (node.ledger.cache.block_count != pre_upgrade + upgrade_count)
 			{
@@ -1977,7 +1953,7 @@ TEST (node, mass_block_new)
 		node.block_processor.flush ();
 		// Clear all active
 		{
-			nano::lock_guard<nano::mutex> guard (node.active.mutex);
+			nano::lock_guard<nano::mutex> guard{ node.active.mutex };
 			node.active.roots.clear ();
 			node.active.blocks.clear ();
 		}
@@ -2074,6 +2050,134 @@ TEST (node, mass_block_new)
 	process_all (receive_blocks);
 	std::cout << "Receive blocks time: " << timer.stop ().count () << " " << timer.unit () << "\n\n";
 }
+
+// Tests that local blocks are flooded to all principal representatives
+// Sanitizers or running within valgrind use different timings and number of nodes
+TEST (node, aggressive_flooding)
+{
+	nano::test::system system;
+	nano::node_flags node_flags;
+	node_flags.disable_request_loop = true;
+	node_flags.disable_bootstrap_bulk_push_client = true;
+	node_flags.disable_bootstrap_bulk_pull_server = true;
+	node_flags.disable_bootstrap_listener = true;
+	node_flags.disable_lazy_bootstrap = true;
+	node_flags.disable_legacy_bootstrap = true;
+	node_flags.disable_wallet_bootstrap = true;
+	node_flags.disable_ascending_bootstrap = true;
+	auto & node1 (*system.add_node (node_flags));
+	auto & wallet1 (*system.wallet (0));
+	wallet1.insert_adhoc (nano::dev::genesis_key.prv);
+	std::vector<std::pair<std::shared_ptr<nano::node>, std::shared_ptr<nano::wallet>>> nodes_wallets;
+	nodes_wallets.resize (!nano::memory_intensive_instrumentation () ? 5 : 3);
+
+	std::generate (nodes_wallets.begin (), nodes_wallets.end (), [&system, node_flags] () {
+		nano::node_config node_config (nano::test::get_available_port (), system.logging);
+		auto node (system.add_node (node_config, node_flags));
+		return std::make_pair (node, system.wallet (system.nodes.size () - 1));
+	});
+
+	// This test is only valid if a non-aggressive flood would not reach every peer
+	ASSERT_TIMELY (5s, node1.network.size () == nodes_wallets.size ());
+	ASSERT_LT (node1.network.fanout (), nodes_wallets.size ());
+
+	// Each new node should see genesis representative
+	ASSERT_TIMELY (10s, std::all_of (nodes_wallets.begin (), nodes_wallets.end (), [] (auto const & node_wallet) { return node_wallet.first->rep_crawler.principal_representatives ().size () != 0; }));
+
+	// Send a large amount to create a principal representative in each node
+	auto large_amount = (nano::dev::constants.genesis_amount / 2) / nodes_wallets.size ();
+	std::vector<std::shared_ptr<nano::block>> genesis_blocks;
+	for (auto & node_wallet : nodes_wallets)
+	{
+		nano::keypair keypair;
+		node_wallet.second->store.representative_set (node_wallet.first->wallets.tx_begin_write (), keypair.pub);
+		node_wallet.second->insert_adhoc (keypair.prv);
+		auto block (wallet1.send_action (nano::dev::genesis_key.pub, keypair.pub, large_amount));
+		ASSERT_NE (nullptr, block);
+		genesis_blocks.push_back (block);
+	}
+
+	// Ensure all nodes have the full genesis chain
+	for (auto & node_wallet : nodes_wallets)
+	{
+		for (auto const & block : genesis_blocks)
+		{
+			auto process_result (node_wallet.first->process (*block));
+			ASSERT_TRUE (nano::process_result::progress == process_result.code || nano::process_result::old == process_result.code);
+		}
+		ASSERT_EQ (node1.latest (nano::dev::genesis_key.pub), node_wallet.first->latest (nano::dev::genesis_key.pub));
+		ASSERT_EQ (genesis_blocks.back ()->hash (), node_wallet.first->latest (nano::dev::genesis_key.pub));
+		// Confirm blocks for rep crawler & receiving
+		nano::test::start_elections (system, *node_wallet.first, { genesis_blocks.back () }, true);
+	}
+	nano::test::start_elections (system, node1, { genesis_blocks.back () }, true);
+
+	// Wait until all genesis blocks are received
+	auto all_received = [&nodes_wallets] () {
+		return std::all_of (nodes_wallets.begin (), nodes_wallets.end (), [] (auto const & node_wallet) {
+			auto local_representative (node_wallet.second->store.representative (node_wallet.first->wallets.tx_begin_read ()));
+			return node_wallet.first->ledger.account_balance (node_wallet.first->store.tx_begin_read (), local_representative) > 0;
+		});
+	};
+
+	ASSERT_TIMELY (!nano::slow_instrumentation () ? 10s : 40s, all_received ());
+
+	ASSERT_TIMELY (!nano::slow_instrumentation () ? 10s : 40s, node1.ledger.cache.block_count == 1 + 2 * nodes_wallets.size ());
+
+	// Wait until the main node sees all representatives
+	ASSERT_TIMELY (!nano::slow_instrumentation () ? 10s : 40s, node1.rep_crawler.principal_representatives ().size () == nodes_wallets.size ());
+
+	// Generate blocks and ensure they are sent to all representatives
+	nano::state_block_builder builder;
+	std::shared_ptr<nano::state_block> block{};
+	{
+		auto transaction (node1.store.tx_begin_read ());
+		block = builder.make_block ()
+				.account (nano::dev::genesis_key.pub)
+				.representative (nano::dev::genesis_key.pub)
+				.previous (node1.ledger.latest (transaction, nano::dev::genesis_key.pub))
+				.balance (node1.ledger.account_balance (transaction, nano::dev::genesis_key.pub) - 1)
+				.link (nano::dev::genesis_key.pub)
+				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
+				.work (*node1.work_generate_blocking (node1.ledger.latest (transaction, nano::dev::genesis_key.pub)))
+				.build ();
+	}
+	// Processing locally goes through the aggressive block flooding path
+	ASSERT_EQ (nano::process_result::progress, node1.process_local (block).value ().code);
+
+	auto all_have_block = [&nodes_wallets] (nano::block_hash const & hash_a) {
+		return std::all_of (nodes_wallets.begin (), nodes_wallets.end (), [hash = hash_a] (auto const & node_wallet) {
+			return node_wallet.first->block (hash) != nullptr;
+		});
+	};
+
+	ASSERT_TIMELY (!nano::slow_instrumentation () ? 5s : 25s, all_have_block (block->hash ()));
+
+	// Do the same for a wallet block
+	auto wallet_block = wallet1.send_sync (nano::dev::genesis_key.pub, nano::dev::genesis_key.pub, 10);
+	ASSERT_TIMELY (!nano::slow_instrumentation () ? 5s : 25s, all_have_block (wallet_block));
+
+	// All blocks: genesis + (send+open) for each representative + 2 local blocks
+	// The main node only sees all blocks if other nodes are flooding their PR's open block to all other PRs
+	ASSERT_EQ (1 + 2 * nodes_wallets.size () + 2, node1.ledger.cache.block_count);
+}
+
+TEST (node, send_single_many_peers)
+{
+	nano::test::system system (nano::memory_intensive_instrumentation () ? 4 : 10);
+	nano::keypair key2;
+	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
+	system.wallet (1)->insert_adhoc (key2.prv);
+	ASSERT_NE (nullptr, system.wallet (0)->send_action (nano::dev::genesis_key.pub, key2.pub, system.nodes[0]->config.receive_minimum.number ()));
+	ASSERT_EQ (std::numeric_limits<nano::uint128_t>::max () - system.nodes[0]->config.receive_minimum.number (), system.nodes[0]->balance (nano::dev::genesis_key.pub));
+	ASSERT_TRUE (system.nodes[0]->balance (key2.pub).is_zero ());
+	ASSERT_TIMELY (3.5min, std::all_of (system.nodes.begin (), system.nodes.end (), [&] (std::shared_ptr<nano::node> const & node_a) { return !node_a->balance (key2.pub).is_zero (); }));
+	system.stop ();
+	for (auto node : system.nodes)
+	{
+		ASSERT_TRUE (node->stopped);
+	}
+}
 }
 
 TEST (node, wallet_create_block_confirm_conflicts)
@@ -2152,14 +2256,13 @@ TEST (system, block_sequence)
 	system.deadline_set (3600s);
 	nano::node_config config;
 	config.peering_port = nano::test::get_available_port ();
-	//config.bandwidth_limit = 16 * 1024;
+	// config.bandwidth_limit = 16 * 1024;
 	config.enable_voting = true;
 	config.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
 	nano::node_flags flags;
 	flags.disable_max_peers_per_ip = true;
 	flags.disable_ongoing_bootstrap = true;
 	auto root = system.add_node (config, flags);
-	config.preconfigured_peers.push_back ("::ffff:127.0.0.1:" + std::to_string (root->network.endpoint ().port ()));
 	auto wallet = root->wallets.items.begin ()->second;
 	wallet->insert_adhoc (nano::dev::genesis_key.prv);
 	for (auto rep : reps)
@@ -2175,7 +2278,7 @@ TEST (system, block_sequence)
 		std::cerr << rep.pub.to_account () << ' ' << pr->wallets.items.begin ()->second->exists (rep.pub) << pr->weight (rep.pub) << ' ' << '\n';
 	}
 	while (std::any_of (system.nodes.begin (), system.nodes.end (), [] (std::shared_ptr<nano::node> const & node) {
-		//std::cerr << node->rep_crawler.representative_count () << ' ';
+		// std::cerr << node->rep_crawler.representative_count () << ' ';
 		return node->rep_crawler.representative_count () < 3;
 	}))
 	{

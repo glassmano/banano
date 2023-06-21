@@ -17,7 +17,9 @@ std::string nano::mapping_protocol::to_string ()
 
 nano::port_mapping::port_mapping (nano::node & node_a) :
 	node (node_a),
-	protocols ({ { { "TCP", boost::asio::ip::address_v4::any (), 0, true }, { "UDP", boost::asio::ip::address_v4::any (), 0, !node_a.flags.disable_udp } } })
+	// Kept UDP in the array (set disabled) so the port mapping is still
+	// implemented in case other transport protocols that rely on it is added.
+	protocols ({ { { "TCP", boost::asio::ip::address_v4::any (), 0, true }, { "UDP", boost::asio::ip::address_v4::any (), 0, false } } })
 {
 }
 
@@ -106,7 +108,7 @@ void nano::port_mapping::refresh_mapping ()
 		// We don't map the RPC port because, unless RPC authentication was added, this would almost always be a security risk
 		for (auto & protocol : protocols | boost::adaptors::filtered ([] (auto const & p) { return p.enabled; }))
 		{
-			auto upnp_description = std::string ("Banano Node (") + node.network_params.network.get_current_network_as_string () + ")";
+			auto upnp_description = std::string ("Nano Node (") + node.network_params.network.get_current_network_as_string () + ")";
 			auto add_port_mapping_error_l (UPNP_AddPortMapping (upnp.urls.controlURL, upnp.data.first.servicetype, config_port_l.c_str (), node_port_l.c_str (), address.to_string ().c_str (), upnp_description.c_str (), protocol.name, nullptr, std::to_string (node.network_params.portmapping.lease_duration.count ()).c_str ()));
 
 			if (add_port_mapping_error_l == UPNPCOMMAND_SUCCESS)

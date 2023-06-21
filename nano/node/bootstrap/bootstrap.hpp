@@ -27,7 +27,8 @@ enum class bootstrap_mode
 {
 	legacy,
 	lazy,
-	wallet_lazy
+	wallet_lazy,
+	ascending
 };
 enum class sync_result
 {
@@ -93,7 +94,7 @@ public:
 	~bootstrap_initiator ();
 	void bootstrap (nano::endpoint const &, bool add_to_peers = true, std::string id_a = "");
 	void bootstrap (bool force = false, std::string id_a = "", uint32_t const frontiers_age_a = std::numeric_limits<uint32_t>::max (), nano::account const & start_account_a = nano::account{});
-	bool bootstrap_lazy (nano::hash_or_account const &, bool force = false, bool confirmed = true, std::string id_a = "");
+	bool bootstrap_lazy (nano::hash_or_account const &, bool force = false, std::string id_a = "");
 	void bootstrap_wallet (std::deque<nano::account> &);
 	void run_bootstrap ();
 	void lazy_requeue (nano::block_hash const &, nano::block_hash const &);

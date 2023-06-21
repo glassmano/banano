@@ -1,12 +1,11 @@
 #include <nano/node/bootstrap/bootstrap_server.hpp>
+#include <nano/node/transport/channel.hpp>
 #include <nano/node/transport/transport.hpp>
 #include <nano/secure/ledger.hpp>
 #include <nano/secure/store.hpp>
 
-#include <boost/asio/error.hpp>
-
 // TODO: Make threads configurable
-nano::bootstrap_server::bootstrap_server (nano::store & store_a, nano::ledger & ledger_a, nano::network_constants const & network_constants_a, nano::stat & stats_a) :
+nano::bootstrap_server::bootstrap_server (nano::store & store_a, nano::ledger & ledger_a, nano::network_constants const & network_constants_a, nano::stats & stats_a) :
 	store{ store_a },
 	ledger{ ledger_a },
 	network_constants{ network_constants_a },
@@ -82,7 +81,7 @@ bool nano::bootstrap_server::request (nano::asc_pull_req const & message, std::s
 
 	// If channel is full our response will be dropped anyway, so filter that early
 	// TODO: Add per channel limits (this ideally should be done on the channel message processing side)
-	if (channel->max ())
+	if (channel->max (nano::transport::traffic_type::bootstrap))
 	{
 		stats.inc (nano::stat::type::bootstrap_server, nano::stat::detail::channel_full, nano::stat::dir::in);
 		return false;
@@ -99,7 +98,7 @@ void nano::bootstrap_server::respond (nano::asc_pull_ack & response, std::shared
 	// Increase relevant stats depending on payload type
 	struct stat_visitor
 	{
-		nano::stat & stats;
+		nano::stats & stats;
 
 		void operator() (nano::empty_payload const &)
 		{
@@ -126,7 +125,7 @@ void nano::bootstrap_server::respond (nano::asc_pull_ack & response, std::shared
 			stats.inc (nano::stat::type::bootstrap_server, nano::stat::detail::write_error, nano::stat::dir::out);
 		}
 	},
-	nano::buffer_drop_policy::limiter, nano::bandwidth_limit_type::bootstrap);
+	nano::transport::buffer_drop_policy::limiter, nano::transport::traffic_type::bootstrap);
 }
 
 /*
@@ -139,7 +138,7 @@ void nano::bootstrap_server::process_batch (std::deque<request_t> & batch)
 
 	for (auto & [request, channel] : batch)
 	{
-		if (!channel->max ())
+		if (!channel->max (nano::transport::traffic_type::bootstrap))
 		{
 			auto response = process (transaction, request);
 			respond (response, channel);
@@ -186,7 +185,7 @@ nano::asc_pull_ack nano::bootstrap_server::process (nano::transaction const & tr
 		break;
 		case asc_pull_req::hash_type::account:
 		{
-			auto info = store.account.get (transaction, request.start.as_account ());
+			auto info = ledger.account_info (transaction, request.start.as_account ());
 			if (info)
 			{
 				// Start from open block if pulling by account
@@ -280,7 +279,7 @@ nano::asc_pull_ack nano::bootstrap_server::process (const nano::transaction & tr
 	nano::asc_pull_ack::account_info_payload response_payload{};
 	response_payload.account = target;
 
-	auto account_info = store.account.get (transaction, target);
+	auto account_info = ledger.account_info (transaction, target);
 	if (account_info)
 	{
 		response_payload.account_open = account_info->open_block;
