@@ -14,7 +14,8 @@ template <typename T, typename U>
 class iterator : public iterator_impl<T, U>
 {
 public:
-	iterator (store::transaction const & transaction_a, env const & env_a, MDB_dbi db_a, MDB_val const & val_a = MDB_val{}, bool const direction_asc = true)
+	iterator (store::transaction const & transaction_a, env const & env_a, MDB_dbi db_a, MDB_val const & val_a = MDB_val{}, bool const direction_asc = true) :
+		nano::store::iterator_impl<T, U> (transaction_a)
 	{
 		auto status (mdb_cursor_open (env_a.tx (transaction_a), db_a, &cursor));
 		release_assert (status == 0);
@@ -95,7 +96,7 @@ public:
 		return *this;
 	}
 
-	std::pair<store::db_val<MDB_val>, store::db_val<MDB_val>> * operator-> ()
+	std::pair<store::db_val<MDB_val>, store::db_val<MDB_val>> * operator->()
 	{
 		return &current;
 	}
@@ -213,9 +214,9 @@ public:
 		return *this;
 	}
 
-	std::pair<store::db_val<MDB_val>, store::db_val<MDB_val>> * operator-> ()
+	std::pair<store::db_val<MDB_val>, store::db_val<MDB_val>> * operator->()
 	{
-		return least_iterator ().operator-> ();
+		return least_iterator ().operator->();
 	}
 
 	bool operator== (merge_iterator<T, U> const & other) const

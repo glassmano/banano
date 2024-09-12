@@ -1,5 +1,11 @@
+#include <nano/lib/enum_util.hpp>
 #include <nano/lib/thread_roles.hpp>
 #include <nano/lib/utility.hpp>
+
+std::string_view nano::thread_role::to_string (nano::thread_role::name name)
+{
+	return nano::enum_util::name (name);
+}
 
 std::string nano::thread_role::get_string (nano::thread_role::name role)
 {
@@ -13,14 +19,20 @@ std::string nano::thread_role::get_string (nano::thread_role::name role)
 		case nano::thread_role::name::io:
 			thread_role_name_string = "I/O";
 			break;
+		case nano::thread_role::name::io_daemon:
+			thread_role_name_string = "I/O (daemon)";
+			break;
 		case nano::thread_role::name::work:
 			thread_role_name_string = "Work pool";
 			break;
-		case nano::thread_role::name::packet_processing:
-			thread_role_name_string = "Pkt processing";
+		case nano::thread_role::name::message_processing:
+			thread_role_name_string = "Msg processing";
 			break;
 		case nano::thread_role::name::vote_processing:
 			thread_role_name_string = "Vote processing";
+			break;
+		case nano::thread_role::name::vote_cache_processing:
+			thread_role_name_string = "Vote cache proc";
 			break;
 		case nano::thread_role::name::block_processing:
 			thread_role_name_string = "Blck processing";
@@ -49,14 +61,23 @@ std::string nano::thread_role::get_string (nano::thread_role::name role)
 		case nano::thread_role::name::rpc_process_container:
 			thread_role_name_string = "RPC process";
 			break;
-		case nano::thread_role::name::confirmation_height_processing:
+		case nano::thread_role::name::confirmation_height:
 			thread_role_name_string = "Conf height";
+			break;
+		case nano::thread_role::name::confirmation_height_notifications:
+			thread_role_name_string = "Conf notif";
 			break;
 		case nano::thread_role::name::worker:
 			thread_role_name_string = "Worker";
 			break;
 		case nano::thread_role::name::bootstrap_worker:
 			thread_role_name_string = "Bootstrap work";
+			break;
+		case nano::thread_role::name::wallet_worker:
+			thread_role_name_string = "Wallet work";
+			break;
+		case nano::thread_role::name::election_worker:
+			thread_role_name_string = "Election work";
 			break;
 		case nano::thread_role::name::request_aggregator:
 			thread_role_name_string = "Req aggregator";
@@ -99,6 +120,45 @@ std::string nano::thread_role::get_string (nano::thread_role::name role)
 			break;
 		case nano::thread_role::name::scheduler_priority:
 			thread_role_name_string = "Sched Priority";
+			break;
+		case nano::thread_role::name::stats:
+			thread_role_name_string = "Stats";
+			break;
+		case nano::thread_role::name::rep_crawler:
+			thread_role_name_string = "Rep Crawler";
+			break;
+		case nano::thread_role::name::local_block_broadcasting:
+			thread_role_name_string = "Local broadcast";
+			break;
+		case nano::thread_role::name::rep_tiers:
+			thread_role_name_string = "Rep tiers";
+			break;
+		case nano::thread_role::name::network_cleanup:
+			thread_role_name_string = "Net cleanup";
+			break;
+		case nano::thread_role::name::network_keepalive:
+			thread_role_name_string = "Net keepalive";
+			break;
+		case nano::thread_role::name::network_reachout:
+			thread_role_name_string = "Net reachout";
+			break;
+		case nano::thread_role::name::signal_manager:
+			thread_role_name_string = "Signal manager";
+			break;
+		case nano::thread_role::name::tcp_listener:
+			thread_role_name_string = "TCP listener";
+			break;
+		case nano::thread_role::name::peer_history:
+			thread_role_name_string = "Peer history";
+			break;
+		case nano::thread_role::name::port_mapping:
+			thread_role_name_string = "Port mapping";
+			break;
+		case nano::thread_role::name::vote_router:
+			thread_role_name_string = "Vote router";
+			break;
+		case nano::thread_role::name::monitor:
+			thread_role_name_string = "Monitor";
 			break;
 		default:
 			debug_assert (false && "nano::thread_role::get_string unhandled thread role");

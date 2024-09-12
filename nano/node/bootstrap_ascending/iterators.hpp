@@ -4,9 +4,13 @@
 
 #include <deque>
 
-namespace nano::store
+namespace nano
 {
-class component;
+class ledger;
+}
+
+namespace nano::secure
+{
 class transaction;
 }
 
@@ -21,12 +25,12 @@ public:
 		pending
 	};
 
-	explicit database_iterator (nano::store::component & store, table_type);
+	explicit database_iterator (nano::ledger & ledger, table_type);
 	nano::account operator* () const;
-	void next (nano::store::transaction & tx);
+	void next (secure::transaction & tx);
 
 private:
-	nano::store::component & store;
+	nano::ledger & ledger;
 	nano::account current{ 0 };
 	const table_type table;
 };
@@ -34,9 +38,11 @@ private:
 class buffered_iterator
 {
 public:
-	explicit buffered_iterator (nano::store::component & store);
+	explicit buffered_iterator (nano::ledger & ledger);
+
 	nano::account operator* () const;
-	nano::account next ();
+	nano::account next (std::function<bool (nano::account const &)> const & filter);
+
 	// Indicates if a full ledger iteration has taken place e.g. warmed up
 	bool warmup () const;
 
@@ -44,7 +50,7 @@ private:
 	void fill ();
 
 private:
-	nano::store::component & store;
+	nano::ledger & ledger;
 	std::deque<nano::account> buffer;
 	bool warmup_m{ true };
 

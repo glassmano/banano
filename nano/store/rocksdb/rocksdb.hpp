@@ -1,7 +1,7 @@
 #pragma once
 
 #include <nano/lib/config.hpp>
-#include <nano/lib/logger_mt.hpp>
+#include <nano/lib/logging.hpp>
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/rocksdbconfig.hpp>
 #include <nano/secure/common.hpp>
@@ -9,12 +9,12 @@
 #include <nano/store/rocksdb/block.hpp>
 #include <nano/store/rocksdb/confirmation_height.hpp>
 #include <nano/store/rocksdb/final_vote.hpp>
-#include <nano/store/rocksdb/frontier.hpp>
 #include <nano/store/rocksdb/iterator.hpp>
 #include <nano/store/rocksdb/online_weight.hpp>
 #include <nano/store/rocksdb/peer.hpp>
 #include <nano/store/rocksdb/pending.hpp>
 #include <nano/store/rocksdb/pruned.hpp>
+#include <nano/store/rocksdb/rep_weight.hpp>
 #include <nano/store/rocksdb/version.hpp>
 
 #include <rocksdb/db.h>
@@ -22,7 +22,7 @@
 #include <rocksdb/options.h>
 #include <rocksdb/slice.h>
 #include <rocksdb/table.h>
-#include <rocksdb/utilities/optimistic_transaction_db.h>
+#include <rocksdb/utilities/transaction_db.h>
 
 namespace nano
 {
@@ -36,8 +36,8 @@ namespace nano::store::rocksdb
 class rocksdb_block_store_upgrade_v21_v22_Test;
 
 /**
- 	 * rocksdb implementation of the block store
- 	 */
+ * rocksdb implementation of the block store
+ */
 class component : public nano::store::component
 {
 private:
@@ -45,26 +45,26 @@ private:
 	nano::store::rocksdb::block block_store;
 	nano::store::rocksdb::confirmation_height confirmation_height_store;
 	nano::store::rocksdb::final_vote final_vote_store;
-	nano::store::rocksdb::frontier frontier_store;
 	nano::store::rocksdb::online_weight online_weight_store;
 	nano::store::rocksdb::peer peer_store;
 	nano::store::rocksdb::pending pending_store;
 	nano::store::rocksdb::pruned pruned_store;
 	nano::store::rocksdb::version version_store;
+	nano::store::rocksdb::rep_weight rep_weight_store;
 
 public:
 	friend class nano::store::rocksdb::account;
 	friend class nano::store::rocksdb::block;
 	friend class nano::store::rocksdb::confirmation_height;
 	friend class nano::store::rocksdb::final_vote;
-	friend class nano::store::rocksdb::frontier;
 	friend class nano::store::rocksdb::online_weight;
 	friend class nano::store::rocksdb::peer;
 	friend class nano::store::rocksdb::pending;
 	friend class nano::store::rocksdb::pruned;
 	friend class nano::store::rocksdb::version;
+	friend class nano::store::rocksdb::rep_weight;
 
-	explicit component (nano::logger_mt &, std::filesystem::path const &, nano::ledger_constants & constants, nano::rocksdb_config const & = nano::rocksdb_config{}, bool open_read_only = false);
+	explicit component (nano::logger &, std::filesystem::path const &, nano::ledger_constants & constants, nano::rocksdb_config const & = nano::rocksdb_config{}, bool open_read_only = false, bool force_use_write_queue = false);
 
 	store::write_transaction tx_begin_write (std::vector<nano::tables> const & tables_requiring_lock = {}, std::vector<nano::tables> const & tables_no_lock = {}) override;
 	store::read_transaction tx_begin_read () const override;
@@ -103,10 +103,9 @@ public:
 
 private:
 	bool error{ false };
-	nano::logger_mt & logger;
+	nano::logger & logger;
 	nano::ledger_constants & constants;
-	// Optimistic transactions are used in write mode
-	::rocksdb::OptimisticTransactionDB * optimistic_db = nullptr;
+	::rocksdb::TransactionDB * transaction_db = nullptr;
 	std::unique_ptr<::rocksdb::DB> db;
 	std::vector<std::unique_ptr<::rocksdb::ColumnFamilyHandle>> handles;
 	std::shared_ptr<::rocksdb::TableFactory> small_table_factory;
@@ -149,8 +148,10 @@ private:
 
 	void open (bool & error_a, std::filesystem::path const & path_a, bool open_read_only_a, ::rocksdb::Options const & options_a, std::vector<::rocksdb::ColumnFamilyDescriptor> column_families);
 
-	bool do_upgrades (store::write_transaction const &);
-	void upgrade_v21_to_v22 (store::write_transaction const &);
+	bool do_upgrades (store::write_transaction &);
+	void upgrade_v21_to_v22 (store::write_transaction &);
+	void upgrade_v22_to_v23 (store::write_transaction &);
+	void upgrade_v23_to_v24 (store::write_transaction &);
 
 	void construct_column_family_mutexes ();
 	::rocksdb::Options get_db_options ();

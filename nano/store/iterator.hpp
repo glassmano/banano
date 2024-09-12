@@ -45,9 +45,13 @@ public:
 		return *this;
 	}
 	iterator<T, U> & operator= (iterator<T, U> const &) = delete;
-	std::pair<T, U> * operator-> ()
+	std::pair<T, U> * operator->()
 	{
 		return &current;
+	}
+	std::pair<T, U> const & operator* () const
+	{
+		return current;
 	}
 	bool operator== (iterator<T, U> const & other_a) const
 	{

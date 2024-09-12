@@ -1,13 +1,17 @@
 #include <nano/lib/stats.hpp>
 #include <nano/lib/tomlconfig.hpp>
+#include <nano/node/active_elections.hpp>
+#include <nano/node/election_behavior.hpp>
 #include <nano/node/node.hpp>
 #include <nano/node/scheduler/hinted.hpp>
+#include <nano/secure/ledger.hpp>
+#include <nano/secure/ledger_set_any.hpp>
 
 /*
  * hinted
  */
 
-nano::scheduler::hinted::hinted (hinted_config const & config_a, nano::node & node_a, nano::vote_cache & vote_cache_a, nano::active_transactions & active_a, nano::online_reps & online_reps_a, nano::stats & stats_a) :
+nano::scheduler::hinted::hinted (hinted_config const & config_a, nano::node & node_a, nano::vote_cache & vote_cache_a, nano::active_elections & active_a, nano::online_reps & online_reps_a, nano::stats & stats_a) :
 	config{ config_a },
 	node{ node_a },
 	vote_cache{ vote_cache_a },
@@ -26,6 +30,11 @@ nano::scheduler::hinted::~hinted ()
 void nano::scheduler::hinted::start ()
 {
 	debug_assert (!thread.joinable ());
+
+	if (!config.enabled)
+	{
+		return;
+	}
 
 	thread = std::thread{ [this] () {
 		nano::thread_role::set (nano::thread_role::name::scheduler_hinted);
@@ -59,7 +68,7 @@ bool nano::scheduler::hinted::predicate () const
 	return active.vacancy (nano::election_behavior::hinted) > 0;
 }
 
-void nano::scheduler::hinted::activate (const nano::store::read_transaction & transaction, const nano::block_hash & hash, bool check_dependents)
+void nano::scheduler::hinted::activate (secure::read_transaction & transaction, nano::block_hash const & hash, bool check_dependents)
 {
 	const int max_iterations = 64;
 
@@ -76,7 +85,7 @@ void nano::scheduler::hinted::activate (const nano::store::read_transaction & tr
 		stack.pop ();
 
 		// Check if block exists
-		if (auto block = node.store.block.get (transaction, current_hash); block)
+		if (auto block = node.ledger.any.block_get (transaction, current_hash); block)
 		{
 			// Ensure block is not already confirmed
 			if (node.block_confirmed_or_being_confirmed (transaction, current_hash))
@@ -125,7 +134,7 @@ void nano::scheduler::hinted::run_iterative ()
 	// Get the list before db transaction starts to avoid unnecessary slowdowns
 	auto tops = vote_cache.top (minimum_tally);
 
-	auto transaction = node.store.tx_begin_read ();
+	auto transaction = node.ledger.tx_begin_read ();
 
 	for (auto const & entry : tops)
 	{
@@ -251,6 +260,7 @@ nano::scheduler::hinted_config::hinted_config (nano::network_constants const & n
 
 nano::error nano::scheduler::hinted_config::serialize (nano::tomlconfig & toml) const
 {
+	toml.put ("enable", enabled, "Enable or disable hinted elections\ntype:bool");
 	toml.put ("hinting_threshold", hinting_threshold_percent, "Percentage of online weight needed to start a hinted election. \ntype:uint32,[0,100]");
 	toml.put ("check_interval", check_interval.count (), "Interval between scans of the vote cache for possible hinted elections. \ntype:milliseconds");
 	toml.put ("block_cooldown", block_cooldown.count (), "Cooldown period for blocks that failed to start an election. \ntype:milliseconds");
@@ -261,6 +271,7 @@ nano::error nano::scheduler::hinted_config::serialize (nano::tomlconfig & toml) 
 
 nano::error nano::scheduler::hinted_config::deserialize (nano::tomlconfig & toml)
 {
+	toml.get ("enable", enabled);
 	toml.get ("hinting_threshold", hinting_threshold_percent);
 
 	auto check_interval_l = check_interval.count ();

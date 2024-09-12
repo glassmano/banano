@@ -13,7 +13,6 @@
 #include <chrono>
 #include <condition_variable>
 #include <thread>
-#include <unordered_map>
 
 namespace mi = boost::multi_index;
 
@@ -21,9 +20,14 @@ namespace nano
 {
 class node;
 class node_config;
-class active_transactions;
+class active_elections;
 class vote_cache;
 class online_reps;
+}
+namespace nano::secure
+{
+class transaction;
+class read_transaction;
 }
 
 namespace nano::scheduler
@@ -37,6 +41,7 @@ public:
 	nano::error serialize (nano::tomlconfig & toml) const;
 
 public:
+	bool enabled{ true };
 	std::chrono::milliseconds check_interval{ 1000 };
 	std::chrono::milliseconds block_cooldown{ 10000 };
 	unsigned hinting_threshold_percent{ 10 };
@@ -49,7 +54,7 @@ public:
 class hinted final
 {
 public:
-	hinted (hinted_config const &, nano::node &, nano::vote_cache &, nano::active_transactions &, nano::online_reps &, nano::stats &);
+	hinted (hinted_config const &, nano::node &, nano::vote_cache &, nano::active_elections &, nano::online_reps &, nano::stats &);
 	~hinted ();
 
 	void start ();
@@ -66,7 +71,7 @@ private:
 	bool predicate () const;
 	void run ();
 	void run_iterative ();
-	void activate (nano::store::read_transaction const &, nano::block_hash const & hash, bool check_dependents);
+	void activate (secure::read_transaction &, nano::block_hash const & hash, bool check_dependents);
 
 	nano::uint128_t tally_threshold () const;
 	nano::uint128_t final_tally_threshold () const;
@@ -74,7 +79,7 @@ private:
 private: // Dependencies
 	nano::node & node;
 	nano::vote_cache & vote_cache;
-	nano::active_transactions & active;
+	nano::active_elections & active;
 	nano::online_reps & online_reps;
 	nano::stats & stats;
 

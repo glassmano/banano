@@ -2,13 +2,16 @@
 #include <nano/boost/asio/dispatch.hpp>
 #include <nano/boost/asio/strand.hpp>
 #include <nano/lib/convert.hpp>
-#include <nano/lib/tlsconfig.hpp>
+#include <nano/lib/blocks.hpp>
+#include <nano/lib/logging.hpp>
 #include <nano/lib/work.hpp>
+#include <nano/node/election_status.hpp>
 #include <nano/node/node_observers.hpp>
 #include <nano/node/transport/channel.hpp>
-#include <nano/node/transport/transport.hpp>
+#include <nano/node/vote_router.hpp>
 #include <nano/node/wallet.hpp>
 #include <nano/node/websocket.hpp>
+#include <nano/secure/ledger.hpp>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/property_tree/json_parser.hpp>
@@ -16,12 +19,13 @@
 #include <algorithm>
 #include <chrono>
 
-nano::websocket::confirmation_options::confirmation_options (nano::wallets & wallets_a) :
-	wallets (wallets_a)
+nano::websocket::confirmation_options::confirmation_options (nano::wallets & wallets_a, nano::logger & logger_a) :
+	wallets (wallets_a),
+	logger (logger_a)
 {
 }
 
-nano::websocket::confirmation_options::confirmation_options (boost::property_tree::ptree const & options_a, nano::wallets & wallets_a, nano::logger_mt & logger_a) :
+nano::websocket::confirmation_options::confirmation_options (boost::property_tree::ptree const & options_a, nano::wallets & wallets_a, nano::logger & logger_a) :
 	wallets (wallets_a),
 	logger (logger_a)
 {
@@ -64,7 +68,7 @@ nano::websocket::confirmation_options::confirmation_options (boost::property_tre
 
 		if (!include_block)
 		{
-			logger_a.always_log ("Websocket: Filtering option \"all_local_accounts\" requires that \"include_block\" is set to true to be effective");
+			logger.warn (nano::log::type::websocket, "Filtering option \"all_local_accounts\" requires that \"include_block\" is set to true to be effective");
 		}
 	}
 	auto accounts_l (options_a.get_child_optional ("accounts"));
@@ -81,13 +85,13 @@ nano::websocket::confirmation_options::confirmation_options (boost::property_tre
 			}
 			else
 			{
-				logger_a.always_log ("Websocket: invalid account provided for filtering blocks: ", account_l.second.data ());
+				logger.warn (nano::log::type::websocket, "Invalid account provided for filtering blocks: ", account_l.second.data ());
 			}
 		}
 
 		if (!include_block)
 		{
-			logger_a.always_log ("Websocket: Filtering option \"accounts\" requires that \"include_block\" is set to true to be effective");
+			logger.warn (nano::log::type::websocket, "Filtering option \"accounts\" requires that \"include_block\" is set to true to be effective");
 		}
 	}
 	check_filter_empty ();
@@ -160,9 +164,9 @@ bool nano::websocket::confirmation_options::update (boost::property_tree::ptree 
 					this->accounts.erase (encoded_l);
 				}
 			}
-			else if (this->logger.is_initialized ())
+			else
 			{
-				this->logger->always_log ("Websocket: invalid account provided for filtering blocks: ", account_l.second.data ());
+				logger.warn (nano::log::type::websocket, "Invalid account provided for filtering blocks: ", account_l.second.data ());
 			}
 		}
 	};
@@ -188,13 +192,13 @@ bool nano::websocket::confirmation_options::update (boost::property_tree::ptree 
 void nano::websocket::confirmation_options::check_filter_empty () const
 {
 	// Warn the user if the options resulted in an empty filter
-	if (logger.is_initialized () && has_account_filtering_options && !all_local_accounts && accounts.empty ())
+	if (has_account_filtering_options && !all_local_accounts && accounts.empty ())
 	{
-		logger->always_log ("Websocket: provided options resulted in an empty block confirmation filter");
+		logger.warn (nano::log::type::websocket, "Provided options resulted in an empty account confirmation filter");
 	}
 }
 
-nano::websocket::vote_options::vote_options (boost::property_tree::ptree const & options_a, nano::logger_mt & logger_a)
+nano::websocket::vote_options::vote_options (boost::property_tree::ptree const & options_a, nano::logger & logger)
 {
 	include_replays = options_a.get<bool> ("include_replays", false);
 	include_indeterminate = options_a.get<bool> ("include_indeterminate", false);
@@ -211,13 +215,13 @@ nano::websocket::vote_options::vote_options (boost::property_tree::ptree const &
 			}
 			else
 			{
-				logger_a.always_log ("Websocket: invalid account given to filter votes: ", representative_l.second.data ());
+				logger.warn (nano::log::type::websocket, "Invalid account provided for filtering votes: ", representative_l.second.data ());
 			}
 		}
 		// Warn the user if the option will be ignored
 		if (representatives.empty ())
 		{
-			logger_a.always_log ("Websocket: account filter for votes is empty, no messages will be filtered");
+			logger.warn (nano::log::type::websocket, "Account filter for votes is empty, no messages will be filtered");
 		}
 	}
 }
@@ -242,15 +246,25 @@ bool nano::websocket::vote_options::should_filter (nano::websocket::message cons
 nano::websocket::session::session (nano::websocket::listener & listener_a, socket_type socket_a, boost::asio::ssl::context & ctx_a) :
 	ws_listener (listener_a), ws (std::move (socket_a), ctx_a)
 {
-	ws_listener.get_logger ().try_log ("Websocket: secure session started");
 }
 
 #endif
 
-nano::websocket::session::session (nano::websocket::listener & listener_a, socket_type socket_a) :
-	ws_listener (listener_a), ws (std::move (socket_a))
+nano::websocket::session::session (nano::websocket::listener & listener_a, socket_type socket_a, nano::logger & logger_a) :
+	ws_listener (listener_a),
+	ws (std::move (socket_a)),
+	logger (logger_a)
 {
-	ws_listener.get_logger ().try_log ("Websocket: session started");
+	{
+		// Best effort attempt to get endpoint addresses
+		boost::system::error_code ec;
+		remote = ws.get_socket ().remote_endpoint (ec);
+		debug_assert (!ec);
+		local = ws.get_socket ().local_endpoint (ec);
+		debug_assert (!ec);
+	}
+
+	logger.info (nano::log::type::websocket, "Session started ({})", nano::util::to_str (remote));
 }
 
 nano::websocket::session::~session ()
@@ -275,14 +289,14 @@ void nano::websocket::session::handshake ()
 		}
 		else
 		{
-			this_l->ws_listener.get_logger ().always_log ("Websocket: handshake failed: ", ec.message ());
+			this_l->logger.error (nano::log::type::websocket, "Handshake failed: {} ({})", ec.message (), nano::util::to_str (this_l->remote));
 		}
 	});
 }
 
 void nano::websocket::session::close ()
 {
-	ws_listener.get_logger ().try_log ("Websocket: session closing");
+	logger.info (nano::log::type::websocket, "Session closing ({})", nano::util::to_str (remote));
 
 	auto this_l (shared_from_this ());
 	boost::asio::dispatch (ws.get_strand (),
@@ -358,12 +372,12 @@ void nano::websocket::session::read ()
 				}
 				catch (boost::property_tree::json_parser::json_parser_error const & ex)
 				{
-					this_l->ws_listener.get_logger ().try_log ("Websocket: json parsing failed: ", ex.what ());
+					this_l->logger.error (nano::log::type::websocket, "JSON parsing failed: {} ({})", ex.what (), nano::util::to_str (this_l->remote));
 				}
 			}
 			else if (ec != boost::asio::error::eof)
 			{
-				this_l->ws_listener.get_logger ().try_log ("Websocket: read failed: ", ec.message ());
+				this_l->logger.error (nano::log::type::websocket, "Read failed: {} ({})", ec.message (), nano::util::to_str (this_l->remote));
 			}
 		});
 	});
@@ -485,11 +499,11 @@ void nano::websocket::session::handle_message (boost::property_tree::ptree const
 		std::unique_ptr<nano::websocket::options> options_l{ nullptr };
 		if (options_text_l && topic_l == nano::websocket::topic::confirmation)
 		{
-			options_l = std::make_unique<nano::websocket::confirmation_options> (options_text_l.get (), ws_listener.get_wallets (), ws_listener.get_logger ());
+			options_l = std::make_unique<nano::websocket::confirmation_options> (options_text_l.get (), ws_listener.get_wallets (), logger);
 		}
 		else if (options_text_l && topic_l == nano::websocket::topic::vote)
 		{
-			options_l = std::make_unique<nano::websocket::vote_options> (options_text_l.get (), ws_listener.get_logger ());
+			options_l = std::make_unique<nano::websocket::vote_options> (options_text_l.get (), logger);
 		}
 		else
 		{
@@ -498,13 +512,15 @@ void nano::websocket::session::handle_message (boost::property_tree::ptree const
 		auto existing (subscriptions.find (topic_l));
 		if (existing != subscriptions.end ())
 		{
+			logger.info (nano::log::type::websocket, "Updated subscription to topic: {} ({})", from_topic (topic_l), nano::util::to_str (remote));
+
 			existing->second = std::move (options_l);
-			ws_listener.get_logger ().always_log ("Websocket: updated subscription to topic: ", from_topic (topic_l));
 		}
 		else
 		{
+			logger.info (nano::log::type::websocket, "New subscription to topic: {} ({})", from_topic (topic_l), nano::util::to_str (remote));
+
 			subscriptions.emplace (topic_l, std::move (options_l));
-			ws_listener.get_logger ().always_log ("Websocket: new subscription to topic: ", from_topic (topic_l));
 			ws_listener.increase_subscriber_count (topic_l);
 		}
 		action_succeeded = true;
@@ -527,7 +543,8 @@ void nano::websocket::session::handle_message (boost::property_tree::ptree const
 		nano::lock_guard<nano::mutex> lk (subscriptions_mutex);
 		if (subscriptions.erase (topic_l))
 		{
-			ws_listener.get_logger ().always_log ("Websocket: removed subscription to topic: ", from_topic (topic_l));
+			logger.info (nano::log::type::websocket, "Removed subscription to topic: {} ({})", from_topic (topic_l), nano::util::to_str (remote));
+
 			ws_listener.decrease_subscriber_count (topic_l);
 		}
 		action_succeeded = true;
@@ -561,8 +578,7 @@ void nano::websocket::listener::stop ()
 	sessions.clear ();
 }
 
-nano::websocket::listener::listener (std::shared_ptr<nano::tls_config> const & tls_config_a, nano::logger_mt & logger_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a) :
-	tls_config (tls_config_a),
+nano::websocket::listener::listener (nano::logger & logger_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a) :
 	logger (logger_a),
 	wallets (wallets_a),
 	acceptor (io_ctx_a),
@@ -581,7 +597,7 @@ nano::websocket::listener::listener (std::shared_ptr<nano::tls_config> const & t
 	}
 	catch (std::exception const & ex)
 	{
-		logger.always_log ("Websocket: listen failed: ", ex.what ());
+		logger.error (nano::log::type::websocket, "Listen failed: {}", ex.what ());
 	}
 }
 
@@ -606,28 +622,21 @@ void nano::websocket::listener::on_accept (boost::system::error_code ec)
 {
 	if (ec)
 	{
-		logger.always_log ("Websocket: accept failed: ", ec.message ());
+		logger.error (nano::log::type::websocket, "Accept failed: {}", ec.message ());
 	}
 	else
 	{
 		// Create the session and initiate websocket handshake
 		std::shared_ptr<nano::websocket::session> session;
-		if (tls_config && tls_config->enable_wss)
-		{
-#ifdef NANO_SECURE_RPC
-			session = std::make_shared<nano::websocket::session> (*this, std::move (socket), tls_config->ssl_context);
-#endif
-		}
-		else
-		{
-			session = std::make_shared<nano::websocket::session> (*this, std::move (socket));
-		}
+		session = std::make_shared<nano::websocket::session> (*this, std::move (socket), logger);
 
+		// TODO: Why is this locking and unlocking mutex manually??
 		sessions_mutex.lock ();
 		sessions.push_back (session);
 		// Clean up expired sessions
 		sessions.erase (std::remove_if (sessions.begin (), sessions.end (), [] (auto & elem) { return elem.expired (); }), sessions.end ());
 		sessions_mutex.unlock ();
+
 		session->handshake ();
 	}
 
@@ -652,7 +661,7 @@ void nano::websocket::listener::broadcast_confirmation (std::shared_ptr<nano::bl
 			auto subscription (session_ptr->subscriptions.find (nano::websocket::topic::confirmation));
 			if (subscription != session_ptr->subscriptions.end ())
 			{
-				nano::websocket::confirmation_options default_options (wallets);
+				nano::websocket::confirmation_options default_options (wallets, logger);
 				auto conf_options (dynamic_cast<nano::websocket::confirmation_options *> (subscription->second.get ()));
 				if (conf_options == nullptr)
 				{
@@ -774,7 +783,7 @@ nano::websocket::message nano::websocket::message_builder::block_confirmed (std:
 				entry.put ("timestamp", vote_l.timestamp);
 				entry.put ("hash", vote_l.hash.to_string ());
 				entry.put ("weight", vote_l.weight.convert_to<std::string> ());
-				entry.put ("weight", convert_raw_to_dec (vote_l.weight.convert_to<std::string> ()));
+				entry.put ("weight_decimal", convert_raw_to_dec (vote_l.weight.convert_to<std::string> ()));
 				election_votes_l.push_back (std::make_pair ("", entry));
 			}
 			election_node_l.add_child ("votes", election_votes_l);
@@ -827,6 +836,9 @@ nano::websocket::message nano::websocket::message_builder::vote_received (std::s
 			break;
 		case nano::vote_code::indeterminate:
 			vote_type = "indeterminate";
+			break;
+		case nano::vote_code::ignored:
+			vote_type = "ignored";
 			break;
 		case nano::vote_code::invalid:
 			debug_assert (false);
@@ -972,7 +984,7 @@ std::string nano::websocket::message::to_string () const
  * websocket_server
  */
 
-nano::websocket_server::websocket_server (nano::websocket::config & config_a, nano::node_observers & observers_a, nano::wallets & wallets_a, nano::ledger & ledger_a, boost::asio::io_context & io_ctx_a, nano::logger_mt & logger_a) :
+nano::websocket_server::websocket_server (nano::websocket::config & config_a, nano::node_observers & observers_a, nano::wallets & wallets_a, nano::ledger & ledger_a, boost::asio::io_context & io_ctx_a, nano::logger & logger_a) :
 	config{ config_a },
 	observers{ observers_a },
 	wallets{ wallets_a },
@@ -986,7 +998,7 @@ nano::websocket_server::websocket_server (nano::websocket::config & config_a, na
 	}
 
 	auto endpoint = nano::tcp_endpoint{ boost::asio::ip::make_address_v6 (config.address), config.port };
-	server = std::make_shared<nano::websocket::listener> (config.tls_config, logger, wallets, io_ctx, endpoint);
+	server = std::make_shared<nano::websocket::listener> (logger, wallets, io_ctx, endpoint);
 
 	observers.blocks.add ([this] (nano::election_status const & status_a, std::vector<nano::vote_with_weight_info> const & votes_a, nano::account const & account_a, nano::amount const & amount_a, bool is_state_send_a, bool is_state_epoch_a) {
 		debug_assert (status_a.type != nano::election_status_type::ongoing);
@@ -1001,13 +1013,13 @@ nano::websocket_server::websocket_server (nano::websocket::config & config_a, na
 			}
 			else if (block_a->type () == nano::block_type::state)
 			{
-				if (block_a->link ().is_zero ())
+				if (block_a->is_change ())
 				{
 					subtype = "change";
 				}
 				else if (is_state_epoch_a)
 				{
-					debug_assert (amount_a == 0 && ledger.is_epoch_link (block_a->link ()));
+					debug_assert (amount_a == 0 && ledger.is_epoch_link (block_a->link_field ().value ()));
 					subtype = "epoch";
 				}
 				else
@@ -1044,7 +1056,8 @@ nano::websocket_server::websocket_server (nano::websocket::config & config_a, na
 		}
 	});
 
-	observers.vote.add ([this] (std::shared_ptr<nano::vote> vote_a, std::shared_ptr<nano::transport::channel> const & channel_a, nano::vote_code code_a) {
+	observers.vote.add ([this] (std::shared_ptr<nano::vote> vote_a, std::shared_ptr<nano::transport::channel> const & channel_a, nano::vote_source source_a, nano::vote_code code_a) {
+		debug_assert (vote_a != nullptr);
 		if (server->any_subscriber (nano::websocket::topic::vote))
 		{
 			nano::websocket::message_builder builder;

@@ -1,4 +1,5 @@
 #include <nano/secure/parallel_traversal.hpp>
+#include <nano/store/db_val_impl.hpp>
 #include <nano/store/rocksdb/block.hpp>
 #include <nano/store/rocksdb/rocksdb.hpp>
 
@@ -48,7 +49,7 @@ void nano::store::rocksdb::block::raw_put (store::write_transaction const & tran
 	store.release_assert_success (status);
 }
 
-nano::block_hash nano::store::rocksdb::block::successor (store::transaction const & transaction_a, nano::block_hash const & hash_a) const
+std::optional<nano::block_hash> nano::store::rocksdb::block::successor (store::transaction const & transaction_a, nano::block_hash const & hash_a) const
 {
 	nano::store::rocksdb::db_val value;
 	block_raw_get (transaction_a, hash_a, value);
@@ -65,6 +66,10 @@ nano::block_hash nano::store::rocksdb::block::successor (store::transaction cons
 	else
 	{
 		result.clear ();
+	}
+	if (result.is_zero ())
+	{
+		return std::nullopt;
 	}
 	return result;
 }

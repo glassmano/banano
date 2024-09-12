@@ -16,6 +16,10 @@ namespace nano
 {
 class ledger;
 class node_config;
+namespace store
+{
+	class transaction;
+}
 
 /** Track online representatives and trend online weight */
 class online_reps final

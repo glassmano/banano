@@ -39,12 +39,33 @@ add_library(
   ${PLATFORM_SECURE_SOURCE}
   ${CMAKE_BINARY_DIR}/bootstrap_weights_live.cpp
   ${CMAKE_BINARY_DIR}/bootstrap_weights_beta.cpp
+  account_info.hpp
+  account_info.cpp
+  account_iterator.cpp
+  account_iterator.hpp
+  account_iterator_impl.hpp
   common.hpp
   common.cpp
+  generate_cache_flags.hpp
+  generate_cache_flags.cpp
   ledger.hpp
   ledger.cpp
+  ledger_cache.hpp
+  ledger_cache.cpp
+  ledger_set_any.hpp
+  ledger_set_any.cpp
+  ledger_set_confirmed.hpp
+  ledger_set_confirmed.cpp
   network_filter.hpp
   network_filter.cpp
+  pending_info.hpp
+  pending_info.cpp
+  receivable_iterator.cpp
+  receivable_iterator.hpp
+  receivable_iterator_impl.hpp
+  rep_weights.hpp
+  rep_weights.cpp
+  transaction.hpp
   utility.hpp
   utility.cpp
   vote.hpp

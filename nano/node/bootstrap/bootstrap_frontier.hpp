@@ -1,9 +1,10 @@
 #pragma once
 
-#include <nano/node/common.hpp>
+#include <nano/lib/numbers.hpp>
 
 #include <deque>
 #include <future>
+#include <memory>
 
 namespace nano
 {

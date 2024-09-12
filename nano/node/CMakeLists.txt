@@ -14,22 +14,12 @@ endif()
 add_library(
   node
   ${platform_sources}
-  active_transactions.hpp
-  active_transactions.cpp
+  active_elections.hpp
+  active_elections.cpp
   backlog_population.hpp
   backlog_population.cpp
   bandwidth_limiter.hpp
   bandwidth_limiter.cpp
-  block_arrival.hpp
-  block_arrival.cpp
-  block_broadcast.cpp
-  block_broadcast.hpp
-  block_publisher.cpp
-  block_publisher.hpp
-  gap_tracker.cpp
-  gap_tracker.hpp
-  blocking_observer.cpp
-  blocking_observer.hpp
   blockprocessor.hpp
   blockprocessor.cpp
   bootstrap/block_deserializer.hpp
@@ -69,12 +59,8 @@ add_library(
   cli.cpp
   common.hpp
   common.cpp
-  confirmation_height_bounded.hpp
-  confirmation_height_bounded.cpp
-  confirmation_height_processor.hpp
-  confirmation_height_processor.cpp
-  confirmation_height_unbounded.hpp
-  confirmation_height_unbounded.cpp
+  confirming_set.hpp
+  confirming_set.cpp
   confirmation_solicitor.hpp
   confirmation_solicitor.cpp
   daemonconfig.hpp
@@ -85,15 +71,12 @@ add_library(
   distributed_work_factory.cpp
   election.hpp
   election.cpp
+  election_behavior.hpp
   election_insertion_result.hpp
+  election_status.hpp
   epoch_upgrader.hpp
   epoch_upgrader.cpp
-  gap_cache.hpp
-  gap_cache.cpp
-  inactive_cache_information.hpp
-  inactive_cache_information.cpp
-  inactive_cache_status.hpp
-  inactive_cache_status.cpp
+  fair_queue.hpp
   ipc/action_handler.hpp
   ipc/action_handler.cpp
   ipc/flatbuffers_handler.hpp
@@ -110,12 +93,18 @@ add_library(
   ipc/ipc_server.cpp
   json_handler.hpp
   json_handler.cpp
-  ledger_walker.hpp
-  ledger_walker.cpp
-  logging.hpp
-  logging.cpp
+  local_block_broadcaster.cpp
+  local_block_broadcaster.hpp
+  local_vote_history.cpp
+  local_vote_history.hpp
   make_store.hpp
   make_store.cpp
+  message_processor.hpp
+  message_processor.cpp
+  messages.hpp
+  messages.cpp
+  monitor.hpp
+  monitor.cpp
   network.hpp
   network.cpp
   nodeconfig.hpp
@@ -124,6 +113,10 @@ add_library(
   node_observers.cpp
   node_rpc_config.hpp
   node_rpc_config.cpp
+  node_wrapper.hpp
+  node_wrapper.cpp
+  inactive_node.hpp
+  inactive_node.cpp
   node.hpp
   node.cpp
   online_reps.hpp
@@ -132,20 +125,26 @@ add_library(
   openclconfig.cpp
   openclwork.hpp
   openclwork.cpp
+  peer_history.hpp
+  peer_history.cpp
   peer_exclusion.hpp
   peer_exclusion.cpp
   portmapping.hpp
   portmapping.cpp
   process_live_dispatcher.cpp
   process_live_dispatcher.hpp
+  recently_cemented_cache.cpp
+  recently_cemented_cache.hpp
+  recently_confirmed_cache.cpp
+  recently_confirmed_cache.hpp
   repcrawler.hpp
   repcrawler.cpp
+  rep_tiers.hpp
+  rep_tiers.cpp
   request_aggregator.hpp
   request_aggregator.cpp
   scheduler/bucket.cpp
   scheduler/bucket.hpp
-  scheduler/buckets.cpp
-  scheduler/buckets.hpp
   scheduler/component.hpp
   scheduler/component.cpp
   scheduler/hinted.hpp
@@ -160,28 +159,37 @@ add_library(
   telemetry.cpp
   transport/channel.hpp
   transport/channel.cpp
+  transport/tcp_channel.hpp
+  transport/tcp_channel.cpp
   transport/fake.hpp
   transport/fake.cpp
   transport/inproc.hpp
   transport/inproc.cpp
   transport/message_deserializer.hpp
   transport/message_deserializer.cpp
-  transport/socket.hpp
-  transport/socket.cpp
-  transport/tcp.hpp
-  transport/tcp.cpp
+  transport/tcp_channels.hpp
+  transport/tcp_channels.cpp
+  transport/tcp_listener.hpp
+  transport/tcp_listener.cpp
   transport/tcp_server.hpp
   transport/tcp_server.cpp
+  transport/tcp_socket.hpp
+  transport/tcp_socket.cpp
   transport/transport.hpp
   transport/transport.cpp
   unchecked_map.cpp
   unchecked_map.hpp
   vote_cache.hpp
   vote_cache.cpp
+  vote_generator.hpp
+  vote_generator.cpp
   vote_processor.hpp
   vote_processor.cpp
-  voting.hpp
-  voting.cpp
+  vote_router.hpp
+  vote_router.cpp
+  vote_spacing.hpp
+  vote_spacing.cpp
+  vote_with_weight_info.hpp
   wallet.hpp
   wallet.cpp
   websocket.hpp
@@ -190,15 +198,7 @@ add_library(
   websocketconfig.cpp
   websocket_stream.hpp
   websocket_stream.cpp
-  write_database_queue.hpp
-  write_database_queue.cpp
-  messages.hpp
-  messages.cpp
   xorshift.hpp)
-
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
-  set(DISKHASH diskhash)
-endif()
 
 target_link_libraries(
   node
@@ -210,14 +210,11 @@ target_link_libraries(
   argon2
   lmdb
   Boost::beast
-  Boost::log_setup
-  Boost::log
   Boost::program_options
   Boost::stacktrace
   Boost::system
   Boost::thread
   rocksdb
-  ${DISKHASH}
   ${CMAKE_DL_LIBS}
   ${psapi_lib})
 
@@ -230,6 +227,5 @@ target_compile_definitions(
 add_dependencies(node ipc_flatbuffers_lib)
 
 include_directories(${CMAKE_SOURCE_DIR}/submodules)
-include_directories(${CMAKE_SOURCE_DIR}/submodules/cpptoml/include)
 include_directories(
   ${CMAKE_SOURCE_DIR}/submodules/nano-pow-server/deps/cpptoml/include)

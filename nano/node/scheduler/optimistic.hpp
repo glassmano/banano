@@ -22,9 +22,10 @@ namespace mi = boost::multi_index;
 
 namespace nano
 {
-class node;
+class account_info;
+class active_elections;
 class ledger;
-class active_transactions;
+class node;
 }
 
 namespace nano::scheduler
@@ -50,7 +51,7 @@ class optimistic final
 	struct entry;
 
 public:
-	optimistic (optimistic_config const &, nano::node &, nano::ledger &, nano::active_transactions &, nano::network_constants const & network_constants, nano::stats &);
+	optimistic (optimistic_config const &, nano::node &, nano::ledger &, nano::active_elections &, nano::network_constants const & network_constants, nano::stats &);
 	~optimistic ();
 
 	void start ();
@@ -73,13 +74,13 @@ private:
 
 	bool predicate () const;
 	void run ();
-	void run_one (store::transaction const &, entry const & candidate);
+	void run_one (secure::transaction const &, entry const & candidate);
 
 private: // Dependencies
 	optimistic_config const & config;
 	nano::node & node;
 	nano::ledger & ledger;
-	nano::active_transactions & active;
+	nano::active_elections & active;
 	nano::network_constants const & network_constants;
 	nano::stats & stats;
 

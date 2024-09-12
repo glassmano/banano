@@ -1,13 +1,15 @@
 #include <nano/crypto_lib/random_pool.hpp>
+#include <nano/lib/blocks.hpp>
 #include <nano/lib/thread_runner.hpp>
-#include <nano/lib/threading.hpp>
+#include <nano/node/active_elections.hpp>
+#include <nano/node/election.hpp>
+#include <nano/secure/ledger.hpp>
+#include <nano/secure/ledger_set_any.hpp>
 #include <nano/store/lmdb/wallet_value.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
 
 #include <gtest/gtest.h>
-
-#include <boost/filesystem.hpp>
 
 using namespace std::chrono_literals;
 unsigned constexpr nano::wallet_store::version_current;
@@ -15,11 +17,11 @@ unsigned constexpr nano::wallet_store::version_current;
 TEST (wallet, no_special_keys_accounts)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	nano::keypair key1;
 	ASSERT_FALSE (wallet.exists (transaction, key1.pub));
@@ -36,11 +38,11 @@ TEST (wallet, no_special_keys_accounts)
 TEST (wallet, no_key)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	nano::keypair key1;
 	nano::raw_key prv1;
@@ -51,11 +53,11 @@ TEST (wallet, no_key)
 TEST (wallet, fetch_locked)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_TRUE (wallet.valid_password (transaction));
 	nano::keypair key1;
 	ASSERT_EQ (key1.pub, wallet.insert_adhoc (transaction, key1.prv));
@@ -73,11 +75,11 @@ TEST (wallet, fetch_locked)
 TEST (wallet, retrieval)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	nano::keypair key1;
 	ASSERT_TRUE (wallet.valid_password (transaction));
@@ -95,11 +97,11 @@ TEST (wallet, retrieval)
 TEST (wallet, empty_iteration)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	auto i (wallet.begin (transaction));
 	auto j (wallet.end ());
@@ -109,11 +111,11 @@ TEST (wallet, empty_iteration)
 TEST (wallet, one_item_iteration)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	nano::keypair key1;
 	wallet.insert_adhoc (transaction, key1.prv);
@@ -131,7 +133,7 @@ TEST (wallet, one_item_iteration)
 TEST (wallet, two_item_iteration)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	nano::keypair key1;
 	nano::keypair key2;
@@ -141,7 +143,7 @@ TEST (wallet, two_item_iteration)
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
 	{
 		auto transaction (env.tx_begin_write ());
-		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 		ASSERT_FALSE (init);
 		wallet.insert_adhoc (transaction, key1.prv);
 		wallet.insert_adhoc (transaction, key2.prv);
@@ -181,10 +183,10 @@ TEST (wallet, spend_all_one)
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
 	nano::keypair key2;
 	ASSERT_NE (nullptr, system.wallet (0)->send_action (nano::dev::genesis_key.pub, key2.pub, std::numeric_limits<nano::uint128_t>::max ()));
-	auto transaction (node1.store.tx_begin_read ());
-	auto info2 = node1.ledger.account_info (transaction, nano::dev::genesis_key.pub);
+	auto transaction = node1.ledger.tx_begin_read ();
+	auto info2 = node1.ledger.any.account_get (transaction, nano::dev::genesis_key.pub);
 	ASSERT_NE (latest1, info2->head);
-	auto block (node1.store.block.get (transaction, info2->head));
+	auto block = node1.ledger.any.block_get (transaction, info2->head);
 	ASSERT_NE (nullptr, block);
 	ASSERT_EQ (latest1, block->previous ());
 	ASSERT_TRUE (info2->balance.is_zero ());
@@ -215,28 +217,15 @@ TEST (wallet, spend)
 	// Sending from empty accounts should always be an error.  Accounts need to be opened with an open block, not a send block.
 	ASSERT_EQ (nullptr, system.wallet (0)->send_action (0, key2.pub, 0));
 	ASSERT_NE (nullptr, system.wallet (0)->send_action (nano::dev::genesis_key.pub, key2.pub, std::numeric_limits<nano::uint128_t>::max ()));
-	auto transaction (node1.store.tx_begin_read ());
-	auto info2 = node1.ledger.account_info (transaction, nano::dev::genesis_key.pub);
+	auto transaction = node1.ledger.tx_begin_read ();
+	auto info2 = node1.ledger.any.account_get (transaction, nano::dev::genesis_key.pub);
 	ASSERT_TRUE (info2);
 	ASSERT_NE (latest1, info2->head);
-	auto block (node1.store.block.get (transaction, info2->head));
+	auto block = node1.ledger.any.block_get (transaction, info2->head);
 	ASSERT_NE (nullptr, block);
 	ASSERT_EQ (latest1, block->previous ());
 	ASSERT_TRUE (info2->balance.is_zero ());
 	ASSERT_EQ (0, node1.balance (nano::dev::genesis_key.pub));
-}
-
-TEST (wallet, change)
-{
-	nano::test::system system (1);
-	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-	nano::keypair key2;
-	auto block1 (system.nodes[0]->rep_block (nano::dev::genesis_key.pub));
-	ASSERT_FALSE (block1.is_zero ());
-	ASSERT_NE (nullptr, system.wallet (0)->change_action (nano::dev::genesis_key.pub, key2.pub));
-	auto block2 (system.nodes[0]->rep_block (nano::dev::genesis_key.pub));
-	ASSERT_FALSE (block2.is_zero ());
-	ASSERT_NE (block1, block2);
 }
 
 TEST (wallet, partial_spend)
@@ -253,8 +242,8 @@ TEST (wallet, spend_no_previous)
 	nano::test::system system (1);
 	{
 		system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
-		auto transaction (system.nodes[0]->store.tx_begin_read ());
-		auto info1 = system.nodes[0]->ledger.account_info (transaction, nano::dev::genesis_key.pub);
+		auto transaction = system.nodes[0]->ledger.tx_begin_read ();
+		auto info1 = system.nodes[0]->ledger.any.account_get (transaction, nano::dev::genesis_key.pub);
 		ASSERT_TRUE (info1);
 		for (auto i (0); i < 50; ++i)
 		{
@@ -270,11 +259,11 @@ TEST (wallet, spend_no_previous)
 TEST (wallet, find_none)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	nano::account account (1000);
 	ASSERT_EQ (wallet.end (), wallet.find (transaction, account));
@@ -283,11 +272,11 @@ TEST (wallet, find_none)
 TEST (wallet, find_existing)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	nano::keypair key1;
 	ASSERT_FALSE (wallet.exists (transaction, key1.pub));
@@ -302,11 +291,11 @@ TEST (wallet, find_existing)
 TEST (wallet, rekey)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	nano::raw_key password;
 	wallet.password.value (password);
@@ -374,11 +363,11 @@ TEST (account, encode_fail)
 TEST (wallet, hash_password)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (init);
 	nano::raw_key hash1;
 	wallet.derive_key (hash1, transaction, "");
@@ -423,30 +412,30 @@ TEST (fan, change)
 TEST (wallet, reopen_default_password)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	auto transaction (env.tx_begin_write ());
 	ASSERT_FALSE (init);
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
 	{
-		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 		ASSERT_FALSE (init);
 		ASSERT_TRUE (wallet.valid_password (transaction));
 	}
 	{
 		bool init;
-		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 		ASSERT_FALSE (init);
 		ASSERT_TRUE (wallet.valid_password (transaction));
 	}
 	{
-		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 		ASSERT_FALSE (init);
 		wallet.rekey (transaction, "");
 		ASSERT_TRUE (wallet.valid_password (transaction));
 	}
 	{
 		bool init;
-		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+		nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 		ASSERT_FALSE (init);
 		ASSERT_FALSE (wallet.valid_password (transaction));
 		wallet.attempt_password (transaction, " ");
@@ -459,14 +448,14 @@ TEST (wallet, reopen_default_password)
 TEST (wallet, representative)
 {
 	auto error (false);
-	nano::store::lmdb::env env (error, nano::unique_path ());
+	nano::store::lmdb::env env (error, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (error);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (error);
 	ASSERT_FALSE (wallet.is_representative (transaction));
-	ASSERT_EQ (nano::dev::genesis->account (), wallet.representative (transaction));
+	ASSERT_EQ (nano::dev::genesis_key.pub, wallet.representative (transaction));
 	ASSERT_FALSE (wallet.is_representative (transaction));
 	nano::keypair key;
 	wallet.representative_set (transaction, key.pub);
@@ -480,15 +469,15 @@ TEST (wallet, representative)
 TEST (wallet, serialize_json_empty)
 {
 	auto error (false);
-	nano::store::lmdb::env env (error, nano::unique_path ());
+	nano::store::lmdb::env env (error, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (error);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet1 (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet1 (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (error);
 	std::string serialized;
 	wallet1.serialize_json (transaction, serialized);
-	nano::wallet_store wallet2 (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "1", serialized);
+	nano::wallet_store wallet2 (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "1", serialized);
 	ASSERT_FALSE (error);
 	nano::raw_key password1;
 	nano::raw_key password2;
@@ -505,17 +494,17 @@ TEST (wallet, serialize_json_empty)
 TEST (wallet, serialize_json_one)
 {
 	auto error (false);
-	nano::store::lmdb::env env (error, nano::unique_path ());
+	nano::store::lmdb::env env (error, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (error);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet1 (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet1 (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (error);
 	nano::keypair key;
 	wallet1.insert_adhoc (transaction, key.prv);
 	std::string serialized;
 	wallet1.serialize_json (transaction, serialized);
-	nano::wallet_store wallet2 (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "1", serialized);
+	nano::wallet_store wallet2 (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "1", serialized);
 	ASSERT_FALSE (error);
 	nano::raw_key password1;
 	nano::raw_key password2;
@@ -534,18 +523,18 @@ TEST (wallet, serialize_json_one)
 TEST (wallet, serialize_json_password)
 {
 	auto error (false);
-	nano::store::lmdb::env env (error, nano::unique_path ());
+	nano::store::lmdb::env env (error, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (error);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet1 (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet1 (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (error);
 	nano::keypair key;
 	wallet1.rekey (transaction, "password");
 	wallet1.insert_adhoc (transaction, key.prv);
 	std::string serialized;
 	wallet1.serialize_json (transaction, serialized);
-	nano::wallet_store wallet2 (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "1", serialized);
+	nano::wallet_store wallet2 (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "1", serialized);
 	ASSERT_FALSE (error);
 	ASSERT_FALSE (wallet2.valid_password (transaction));
 	ASSERT_FALSE (wallet2.attempt_password (transaction, "password"));
@@ -567,15 +556,15 @@ TEST (wallet, serialize_json_password)
 TEST (wallet_store, move)
 {
 	auto error (false);
-	nano::store::lmdb::env env (error, nano::unique_path ());
+	nano::store::lmdb::env env (error, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (error);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet1 (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet1 (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	ASSERT_FALSE (error);
 	nano::keypair key1;
 	wallet1.insert_adhoc (transaction, key1.prv);
-	nano::wallet_store wallet2 (error, kdf, transaction, env, nano::dev::genesis->account (), 1, "1");
+	nano::wallet_store wallet2 (error, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "1");
 	ASSERT_FALSE (error);
 	nano::keypair key2;
 	wallet2.insert_adhoc (transaction, key2.prv);
@@ -657,19 +646,18 @@ TEST (wallet, work_generate)
 	wallet->insert_adhoc (nano::dev::genesis_key.prv);
 	nano::account account1;
 	{
-		auto transaction (node1.wallets.tx_begin_read ());
+		auto transaction = node1.wallets.tx_begin_read ();
 		account1 = system.account (transaction, 0);
 	}
 	nano::keypair key;
 	auto block (wallet->send_action (nano::dev::genesis_key.pub, key.pub, 100));
-	auto transaction (node1.store.tx_begin_read ());
-	ASSERT_TIMELY (10s, node1.ledger.account_balance (transaction, nano::dev::genesis_key.pub) != amount1);
+	ASSERT_TIMELY (10s, node1.ledger.any.account_balance (node1.ledger.tx_begin_read (), nano::dev::genesis_key.pub) != amount1);
 	system.deadline_set (10s);
 	auto again (true);
 	while (again)
 	{
 		ASSERT_NO_ERROR (system.poll ());
-		auto block_transaction (node1.store.tx_begin_read ());
+		auto block_transaction = node1.ledger.tx_begin_read ();
 		auto transaction (system.wallet (0)->wallets.tx_begin_read ());
 		again = wallet->store.work_get (transaction, account1, work1) || nano::dev::network_params.work.difficulty (block->work_version (), node1.ledger.latest_root (block_transaction, account1), work1) < node1.default_difficulty (block->work_version ());
 	}
@@ -684,7 +672,7 @@ TEST (wallet, work_cache_delayed)
 	wallet->insert_adhoc (nano::dev::genesis_key.prv);
 	nano::account account1;
 	{
-		auto transaction (node1.wallets.tx_begin_read ());
+		auto transaction = node1.wallets.tx_begin_read ();
 		account1 = system.account (transaction, 0);
 	}
 	nano::keypair key;
@@ -725,11 +713,11 @@ TEST (wallet, insert_locked)
 TEST (wallet, deterministic_keys)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	auto key1 = wallet.deterministic_key (transaction, 0);
 	auto key2 = wallet.deterministic_key (transaction, 0);
 	ASSERT_EQ (key1, key2);
@@ -768,11 +756,11 @@ TEST (wallet, deterministic_keys)
 TEST (wallet, reseed)
 {
 	bool init;
-	nano::store::lmdb::env env (init, nano::unique_path ());
+	nano::store::lmdb::env env (init, nano::unique_path () / "wallet.ldb");
 	ASSERT_FALSE (init);
 	auto transaction (env.tx_begin_write ());
 	nano::kdf kdf{ nano::dev::network_params.kdf_work };
-	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis->account (), 1, "0");
+	nano::wallet_store wallet (init, kdf, transaction, env, nano::dev::genesis_key.pub, 1, "0");
 	nano::raw_key seed1;
 	seed1 = 1;
 	nano::raw_key seed2;
@@ -840,7 +828,7 @@ TEST (wallet, send_race)
 TEST (wallet, password_race)
 {
 	nano::test::system system (1);
-	nano::thread_runner runner (system.io_ctx, system.nodes[0]->config.io_threads);
+	nano::thread_runner runner (system.io_ctx, system.logger, system.nodes[0]->config.io_threads);
 	auto wallet = system.wallet (0);
 	std::thread thread ([&wallet] () {
 		for (int i = 0; i < 100; i++)
@@ -868,7 +856,7 @@ TEST (wallet, password_race)
 TEST (wallet, password_race_corrupt_seed)
 {
 	nano::test::system system (1);
-	nano::thread_runner runner (system.io_ctx, system.nodes[0]->config.io_threads);
+	nano::thread_runner runner (system.io_ctx, system.logger, system.nodes[0]->config.io_threads);
 	auto wallet = system.wallet (0);
 	nano::raw_key seed;
 	{
@@ -914,19 +902,19 @@ TEST (wallet, password_race_corrupt_seed)
 		{
 			nano::raw_key seed_now;
 			wallet->store.seed (seed_now, transaction);
-			ASSERT_TRUE (seed_now == seed);
+			ASSERT_EQ (seed_now, seed);
 		}
 		else if (!wallet->store.attempt_password (transaction, "0000"))
 		{
 			nano::raw_key seed_now;
 			wallet->store.seed (seed_now, transaction);
-			ASSERT_TRUE (seed_now == seed);
+			ASSERT_EQ (seed_now, seed);
 		}
 		else if (!wallet->store.attempt_password (transaction, "4567"))
 		{
 			nano::raw_key seed_now;
 			wallet->store.seed (seed_now, transaction);
-			ASSERT_TRUE (seed_now == seed);
+			ASSERT_EQ (seed_now, seed);
 		}
 		else
 		{
@@ -949,7 +937,7 @@ TEST (wallet, change_seed)
 	wallet->insert_adhoc (nano::dev::genesis_key.prv, false);
 	auto block (wallet->send_action (nano::dev::genesis_key.pub, pub, 100));
 	ASSERT_NE (nullptr, block);
-	system.nodes[0]->block_processor.flush ();
+	ASSERT_TIMELY (5s, nano::test::exists (*system.nodes[0], { block }));
 	{
 		auto transaction (wallet->wallets.tx_begin_write ());
 		wallet->change_seed (transaction, seed1);
@@ -983,7 +971,7 @@ TEST (wallet, deterministic_restore)
 	wallet->insert_adhoc (nano::dev::genesis_key.prv, false);
 	auto block (wallet->send_action (nano::dev::genesis_key.pub, pub, 100));
 	ASSERT_NE (nullptr, block);
-	system.nodes[0]->block_processor.flush ();
+	ASSERT_TIMELY (5s, nano::test::exists (*system.nodes[0], { block }));
 	{
 		auto transaction (wallet->wallets.tx_begin_write ());
 		wallet->deterministic_restore (transaction);
@@ -1016,7 +1004,7 @@ TEST (wallet, epoch_2_validation)
 		ASSERT_EQ (nano::epoch::epoch_2, send->sideband ().details.epoch);
 		ASSERT_EQ (nano::epoch::epoch_0, send->sideband ().source_epoch); // Not used for send state blocks
 
-		auto receive = wallet.receive_action (send->hash (), nano::dev::genesis_key.pub, amount, send->link ().as_account (), 1);
+		auto receive = wallet.receive_action (send->hash (), nano::dev::genesis_key.pub, amount, send->destination (), 1);
 		ASSERT_NE (nullptr, receive);
 		if (nano::dev::network_params.work.difficulty (*receive) < node.network_params.work.base)
 		{
@@ -1058,7 +1046,7 @@ TEST (wallet, epoch_2_receive_propagation)
 		auto amount = node.config.receive_minimum.number ();
 		auto send1 = wallet.send_action (nano::dev::genesis_key.pub, key.pub, amount, 1);
 		ASSERT_NE (nullptr, send1);
-		ASSERT_NE (nullptr, wallet.receive_action (send1->hash (), nano::dev::genesis_key.pub, amount, send1->link ().as_account (), 1));
+		ASSERT_NE (nullptr, wallet.receive_action (send1->hash (), nano::dev::genesis_key.pub, amount, send1->destination (), 1));
 
 		// Upgrade the genesis account to epoch 2
 		auto epoch2 = system.upgrade_genesis_epoch (node, nano::epoch::epoch_2);
@@ -1068,7 +1056,7 @@ TEST (wallet, epoch_2_receive_propagation)
 		auto send2 = wallet.send_action (nano::dev::genesis_key.pub, key.pub, amount, 1);
 		ASSERT_NE (nullptr, send2);
 
-		auto receive2 = wallet.receive_action (send2->hash (), key.pub, amount, send2->link ().as_account (), 1);
+		auto receive2 = wallet.receive_action (send2->hash (), key.pub, amount, send2->destination (), 1);
 		ASSERT_NE (nullptr, receive2);
 		if (nano::dev::network_params.work.difficulty (*receive2) < node.network_params.work.base)
 		{
@@ -1117,11 +1105,11 @@ TEST (wallet, epoch_2_receive_unopened)
 							   .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 							   .work (*system.work.generate (key.pub, node.network_params.work.epoch_2))
 							   .build ();
-		ASSERT_EQ (nano::process_result::progress, node.process (*epoch2_unopened).code);
+		ASSERT_EQ (nano::block_status::progress, node.process (epoch2_unopened));
 
 		wallet.insert_adhoc (key.prv, false);
 
-		auto receive1 = wallet.receive_action (send1->hash (), key.pub, amount, send1->link ().as_account (), 1);
+		auto receive1 = wallet.receive_action (send1->hash (), key.pub, amount, send1->destination (), 1);
 		ASSERT_NE (nullptr, receive1);
 		if (nano::dev::network_params.work.difficulty (*receive1) < node.network_params.work.base)
 		{
@@ -1170,15 +1158,15 @@ TEST (wallet, search_receivable)
 	wallet.insert_adhoc (nano::dev::genesis_key.prv);
 	nano::block_builder builder;
 	auto send = builder.state ()
-				.account (nano::dev::genesis->account ())
+				.account (nano::dev::genesis_key.pub)
 				.previous (nano::dev::genesis->hash ())
-				.representative (nano::dev::genesis->account ())
+				.representative (nano::dev::genesis_key.pub)
 				.balance (nano::dev::constants.genesis_amount - node.config.receive_minimum.number ())
-				.link (nano::dev::genesis->account ())
+				.link (nano::dev::genesis_key.pub)
 				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				.work (*system.work.generate (nano::dev::genesis->hash ()))
 				.build ();
-	ASSERT_EQ (nano::process_result::progress, node.process (*send).code);
+	ASSERT_EQ (nano::block_status::progress, node.process (send));
 
 	// Pending search should start an election
 	ASSERT_TRUE (node.active.empty ());
@@ -1187,7 +1175,7 @@ TEST (wallet, search_receivable)
 	ASSERT_TIMELY (5s, election = node.active.election (send->qualified_root ()));
 
 	// Erase the key so the confirmation does not trigger an automatic receive
-	wallet.store.erase (node.wallets.tx_begin_write (), nano::dev::genesis->account ());
+	wallet.store.erase (node.wallets.tx_begin_write (), nano::dev::genesis_key.pub);
 
 	// Now confirm the election
 	election->force_confirm ();
@@ -1198,14 +1186,14 @@ TEST (wallet, search_receivable)
 	wallet.insert_adhoc (nano::dev::genesis_key.prv);
 
 	// Pending search should create the receive block
-	ASSERT_EQ (2, node.ledger.cache.block_count);
+	ASSERT_EQ (2, node.ledger.block_count ());
 	ASSERT_FALSE (wallet.search_receivable (wallet.wallets.tx_begin_read ()));
-	ASSERT_TIMELY (3s, node.balance (nano::dev::genesis->account ()) == nano::dev::constants.genesis_amount);
-	auto receive_hash = node.ledger.latest (node.store.tx_begin_read (), nano::dev::genesis->account ());
+	ASSERT_TIMELY_EQ (3s, node.balance (nano::dev::genesis_key.pub), nano::dev::constants.genesis_amount);
+	auto receive_hash = node.ledger.any.account_head (node.ledger.tx_begin_read (), nano::dev::genesis_key.pub);
 	auto receive = node.block (receive_hash);
 	ASSERT_NE (nullptr, receive);
 	ASSERT_EQ (receive->sideband ().height, 3);
-	ASSERT_EQ (send->hash (), receive->link ().as_block_hash ());
+	ASSERT_EQ (send->hash (), receive->source ());
 }
 
 TEST (wallet, receive_pruned)
@@ -1232,19 +1220,19 @@ TEST (wallet, receive_pruned)
 	auto send2 = wallet1.send_action (nano::dev::genesis_key.pub, key.pub, 1, 1);
 
 	// Pruning
-	ASSERT_TIMELY (5s, node2.ledger.cache.cemented_count == 3);
+	ASSERT_TIMELY_EQ (5s, node2.ledger.cemented_count (), 3);
 	{
-		auto transaction = node2.store.tx_begin_write ();
+		auto transaction = node2.ledger.tx_begin_write ();
 		ASSERT_EQ (1, node2.ledger.pruning_action (transaction, send1->hash (), 2));
 	}
-	ASSERT_EQ (1, node2.ledger.cache.pruned_count);
-	ASSERT_TRUE (node2.ledger.block_or_pruned_exists (send1->hash ()));
-	ASSERT_FALSE (node2.store.block.exists (node2.store.tx_begin_read (), send1->hash ()));
+	ASSERT_EQ (1, node2.ledger.pruned_count ());
+	ASSERT_TRUE (node2.block_or_pruned_exists (send1->hash ()));
+	ASSERT_FALSE (node2.ledger.any.block_exists (node2.ledger.tx_begin_read (), send1->hash ()));
 
 	wallet2.insert_adhoc (key.prv, false);
 
-	auto open1 = wallet2.receive_action (send1->hash (), key.pub, amount, send1->link ().as_account (), 1);
+	auto open1 = wallet2.receive_action (send1->hash (), key.pub, amount, send1->destination (), 1);
 	ASSERT_NE (nullptr, open1);
-	ASSERT_EQ (amount, node2.ledger.balance (node2.store.tx_begin_read (), open1->hash ()));
-	ASSERT_TIMELY (5s, node2.ledger.cache.cemented_count == 4);
+	ASSERT_EQ (amount, node2.ledger.any.block_balance (node2.ledger.tx_begin_read (), open1->hash ()));
+	ASSERT_TIMELY_EQ (5s, node2.ledger.cemented_count (), 4);
 }

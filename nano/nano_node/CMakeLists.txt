@@ -18,12 +18,14 @@ add_custom_command(
   COMMAND bananode --generate_config node >
           ${PROJECT_BINARY_DIR}/config-node.toml.sample
   COMMAND bananode --generate_config rpc >
-          ${PROJECT_BINARY_DIR}/config-rpc.toml.sample)
+          ${PROJECT_BINARY_DIR}/config-rpc.toml.sample
+  COMMAND bananode --generate_config log >
+          ${PROJECT_BINARY_DIR}/config-log.toml.sample)
 
 if((NANO_GUI OR RAIBLOCKS_GUI) AND NOT APPLE)
   if(WIN32)
     install(TARGETS bananode RUNTIME DESTINATION .)
   else()
-    install(TARGETS bananode RUNTIME DESTINATION ./bin)
+    install(TARGETS nano_node RUNTIME DESTINATION ./bin)
   endif()
 endif()

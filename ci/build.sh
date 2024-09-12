@@ -11,10 +11,10 @@ SRC=${SRC:-${PWD}}
 OS=$(uname)
 
 CMAKE_BACKTRACE=""
-if [[ "$OS" == 'Linux' ]]; then
+if [[ ${OS} == 'Linux' ]]; then
     CMAKE_BACKTRACE="-DNANO_STACKTRACE_BACKTRACE=ON"
 
-    if [[ "$COMPILER" == 'clang' ]]; then
+    if [[ ${COMPILER:-} == 'clang' ]]; then
         CMAKE_BACKTRACE="${CMAKE_BACKTRACE} -DNANO_BACKTRACE_INCLUDE=</tmp/backtrace.h>"
     fi
 fi
@@ -27,10 +27,10 @@ fi
 CMAKE_SANITIZER=""
 if [[ ${SANITIZER:-} ]]; then
     case "${SANITIZER}" in
-        ASAN)     
+        ASAN)
             CMAKE_SANITIZER="-DNANO_ASAN=ON"
             ;;
-        ASAN_INT)    
+        ASAN_INT)
             CMAKE_SANITIZER="-DNANO_ASAN_INT=ON"
             ;;
         TSAN)
@@ -38,6 +38,9 @@ if [[ ${SANITIZER:-} ]]; then
             ;;
         UBSAN)
             CMAKE_SANITIZER="-DNANO_UBSAN=ON"
+            ;;
+        LEAK)
+            CMAKE_SANITIZER="-DNANO_ASAN=ON"
             ;;
         *)
             echo "Unknown sanitizer: '${SANITIZER}'"
@@ -57,6 +60,7 @@ cmake \
 -DACTIVE_NETWORK=nano_${NANO_NETWORK:-"live"}_network \
 -DNANO_TEST=${NANO_TEST:-OFF} \
 -DNANO_GUI=${NANO_GUI:-OFF} \
+-DNANO_TRACING=${NANO_TRACING:-OFF} \
 -DCOVERAGE=${COVERAGE:-OFF} \
 -DCI_TAG=${CI_TAG:-OFF} \
 -DCI_VERSION_PRE_RELEASE=${CI_VERSION_PRE_RELEASE:-OFF} \
@@ -67,10 +71,10 @@ ${SRC}
 
 number_of_processors() {
     case "$(uname -s)" in
-        Linux*)     
+        Linux*)
             nproc
             ;;
-        Darwin*)    
+        Darwin*)
             sysctl -n hw.ncpu
             ;;
         CYGWIN*|MINGW32*|MSYS*|MINGW*)

@@ -4,7 +4,6 @@
 #include <nano/node/bootstrap/bootstrap_lazy.hpp>
 #include <nano/node/common.hpp>
 #include <nano/node/node.hpp>
-#include <nano/node/transport/tcp.hpp>
 
 #include <boost/format.hpp>
 
@@ -16,7 +15,7 @@ constexpr double nano::bootstrap_limits::bootstrap_minimum_termination_time_sec;
 constexpr unsigned nano::bootstrap_limits::bootstrap_max_new_connections;
 constexpr unsigned nano::bootstrap_limits::requeued_pulls_processed_blocks_factor;
 
-nano::bootstrap_client::bootstrap_client (std::shared_ptr<nano::node> const & node_a, std::shared_ptr<nano::transport::channel_tcp> const & channel_a, std::shared_ptr<nano::transport::socket> const & socket_a) :
+nano::bootstrap_client::bootstrap_client (std::shared_ptr<nano::node> const & node_a, std::shared_ptr<nano::transport::tcp_channel> const & channel_a, std::shared_ptr<nano::transport::tcp_socket> const & socket_a) :
 	node (node_a),
 	channel (channel_a),
 	socket (socket_a),
@@ -25,7 +24,7 @@ nano::bootstrap_client::bootstrap_client (std::shared_ptr<nano::node> const & no
 {
 	++node_a->bootstrap_initiator.connections->connections_count;
 	receive_buffer->resize (256);
-	channel->set_endpoint ();
+	channel->update_endpoints ();
 }
 
 nano::bootstrap_client::~bootstrap_client ()
@@ -91,7 +90,8 @@ std::shared_ptr<nano::bootstrap_client> nano::bootstrap_connections::connection 
 	}
 	if (result == nullptr && connections_count == 0 && new_connections_empty && attempt_a != nullptr)
 	{
-		node.logger.try_log (boost::str (boost::format ("Bootstrap attempt stopped because there are no peers")));
+		node.logger.debug (nano::log::type::bootstrap, "Bootstrap attempt stopped because there are no peers");
+
 		lock.unlock ();
 		attempt_a->stop ();
 	}
@@ -151,35 +151,30 @@ std::shared_ptr<nano::bootstrap_client> nano::bootstrap_connections::find_connec
 void nano::bootstrap_connections::connect_client (nano::tcp_endpoint const & endpoint_a, bool push_front)
 {
 	++connections_count;
-	auto socket (std::make_shared<nano::transport::client_socket> (node));
+	auto socket (std::make_shared<nano::transport::tcp_socket> (node));
 	auto this_l (shared_from_this ());
 	socket->async_connect (endpoint_a,
 	[this_l, socket, endpoint_a, push_front] (boost::system::error_code const & ec) {
 		if (!ec)
 		{
-			if (this_l->node.config.logging.bulk_pull_logging ())
-			{
-				this_l->node.logger.try_log (boost::str (boost::format ("Connection established to %1%") % endpoint_a));
-			}
-			auto client (std::make_shared<nano::bootstrap_client> (this_l->node.shared (), std::make_shared<nano::transport::channel_tcp> (*this_l->node.shared (), socket), socket));
+			this_l->node.logger.debug (nano::log::type::bootstrap, "Connection established to: {}", nano::util::to_str (endpoint_a));
+
+			auto client (std::make_shared<nano::bootstrap_client> (this_l->node.shared (), std::make_shared<nano::transport::tcp_channel> (*this_l->node.shared (), socket), socket));
 			this_l->pool_connection (client, true, push_front);
 		}
 		else
 		{
-			if (this_l->node.config.logging.network_logging ())
+			switch (ec.value ())
 			{
-				switch (ec.value ())
-				{
-					default:
-						this_l->node.logger.try_log (boost::str (boost::format ("Error initiating bootstrap connection to %1%: %2%") % endpoint_a % ec.message ()));
-						break;
-					case boost::system::errc::connection_refused:
-					case boost::system::errc::operation_canceled:
-					case boost::system::errc::timed_out:
-					case 995: // Windows The I/O operation has been aborted because of either a thread exit or an application request
-					case 10061: // Windows No connection could be made because the target machine actively refused it
-						break;
-				}
+				default:
+					this_l->node.logger.debug (nano::log::type::bootstrap, "Error initiating bootstrap connection to: {} ({})", nano::util::to_str (endpoint_a), ec.message ());
+					break;
+				case boost::system::errc::connection_refused:
+				case boost::system::errc::operation_canceled:
+				case boost::system::errc::timed_out:
+				case 995: // Windows The I/O operation has been aborted because of either a thread exit or an application request
+				case 10061: // Windows No connection could be made because the target machine actively refused it
+					break;
 			}
 		}
 		--this_l->connections_count;
@@ -236,10 +231,12 @@ void nano::bootstrap_connections::populate_connections (bool repeat)
 				// This is ~1.5kilobits/sec.
 				if (elapsed_sec > nano::bootstrap_limits::bootstrap_minimum_termination_time_sec && blocks_per_sec < nano::bootstrap_limits::bootstrap_minimum_blocks_per_sec)
 				{
-					if (node.config.logging.bulk_pull_logging ())
-					{
-						node.logger.try_log (boost::str (boost::format ("Stopping slow peer %1% (elapsed sec %2%s > %3%s and %4% blocks per second < %5%)") % client->channel->to_string () % elapsed_sec % nano::bootstrap_limits::bootstrap_minimum_termination_time_sec % blocks_per_sec % nano::bootstrap_limits::bootstrap_minimum_blocks_per_sec));
-					}
+					node.logger.debug (nano::log::type::bootstrap, "Stopping slow peer {} (elapsed sec {} > {} and {} blocks per second < {})",
+					client->channel->to_string (),
+					elapsed_sec,
+					nano::bootstrap_limits::bootstrap_minimum_termination_time_sec,
+					blocks_per_sec,
+					nano::bootstrap_limits::bootstrap_minimum_blocks_per_sec);
 
 					client->stop (true);
 					new_clients.pop_back ();
@@ -259,29 +256,27 @@ void nano::bootstrap_connections::populate_connections (bool repeat)
 		// 4 -> 1, 8 -> 2, 16 -> 4, arbitrary, but seems to work well.
 		auto drop = (int)roundf (sqrtf ((float)target - 2.0f));
 
-		if (node.config.logging.bulk_pull_logging ())
-		{
-			node.logger.try_log (boost::str (boost::format ("Dropping %1% bulk pull peers, target connections %2%") % drop % target));
-		}
+		node.logger.debug (nano::log::type::bootstrap, "Dropping {} bulk pull peers, target connections {}", drop, target);
 
 		for (int i = 0; i < drop; i++)
 		{
 			auto client = sorted_connections.top ();
 
-			if (node.config.logging.bulk_pull_logging ())
-			{
-				node.logger.try_log (boost::str (boost::format ("Dropping peer with block rate %1%, block count %2% (%3%) ") % client->block_rate % client->block_count % client->channel->to_string ()));
-			}
+			node.logger.debug (nano::log::type::bootstrap, "Dropping peer with block rate {} and block count {} ({})",
+			client->block_rate.load (),
+			client->block_count.load (),
+			client->channel->to_string ());
 
 			client->stop (false);
 			sorted_connections.pop ();
 		}
 	}
 
-	if (node.config.logging.bulk_pull_logging ())
-	{
-		node.logger.try_log (boost::str (boost::format ("Bulk pull connections: %1%, rate: %2% blocks/sec, bootstrap attempts %3%, remaining pulls: %4%") % connections_count.load () % (int)rate_sum % attempts_count % num_pulls));
-	}
+	node.logger.debug (nano::log::type::bootstrap, "Bulk pull connections: {}, rate: {} blocks/sec, bootstrap attempts {}, remaining pulls: {}",
+	connections_count.load (),
+	(int)rate_sum,
+	attempts_count,
+	num_pulls);
 
 	if (connections_count < target && (attempts_count != 0 || new_connections_empty) && !stopped)
 	{
@@ -423,11 +418,13 @@ void nano::bootstrap_connections::requeue_pull (nano::pull_info const & pull_a, 
 		}
 		else
 		{
-			if (node.config.logging.bulk_pull_logging ())
-			{
-				node.logger.try_log (boost::str (boost::format ("Failed to pull account %1% or head block %2% down to %3% after %4% attempts and %5% blocks processed") % pull.account_or_head.to_account () % pull.account_or_head.to_string () % pull.end.to_string () % pull.attempts % pull.processed));
-			}
 			node.stats.inc (nano::stat::type::bootstrap, nano::stat::detail::bulk_pull_failed_account, nano::stat::dir::in);
+			node.logger.debug (nano::log::type::bootstrap, "Failed to pull account {} or head block {} down to {} after {} attempts and {} blocks processed",
+			pull.account_or_head.to_account (),
+			pull.account_or_head.to_string (),
+			pull.end.to_string (),
+			pull.attempts,
+			pull.processed);
 
 			if (lazy && pull.processed > 0)
 			{

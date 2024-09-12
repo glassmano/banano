@@ -1,4 +1,5 @@
-#include <nano/node/active_transactions.hpp>
+#include <nano/lib/blocks.hpp>
+#include <nano/node/active_elections.hpp>
 #include <nano/test_common/chains.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
@@ -20,7 +21,7 @@ TEST (backlog, population)
 	nano::test::system system{};
 	auto & node = *system.add_node ();
 
-	node.backlog.activate_callback.add ([&] (nano::store::transaction const & transaction, nano::account const & account, nano::account_info const & account_info, nano::confirmation_height_info const & conf_info) {
+	node.backlog.activate_callback.add ([&] (nano::secure::transaction const & transaction, nano::account const & account) {
 		nano::lock_guard<nano::mutex> lock{ mutex };
 
 		activated.insert (account);
@@ -32,9 +33,7 @@ TEST (backlog, population)
 	auto all_activated = [&] () {
 		nano::lock_guard<nano::mutex> lock{ mutex };
 		return std::all_of (blocks.begin (), blocks.end (), [&] (auto const & item) {
-			auto account = item->account ();
-			debug_assert (!account.is_zero ());
-			return activated.count (account) != 0;
+			return activated.count (item->account ()) != 0;
 		});
 	};
 	ASSERT_TIMELY (5s, all_activated ());

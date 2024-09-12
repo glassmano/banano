@@ -1,3 +1,6 @@
+#include <nano/lib/blocks.hpp>
+#include <nano/node/active_elections.hpp>
+#include <nano/node/vote_router.hpp>
 #include <nano/test_common/rate_observer.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
@@ -26,7 +29,7 @@ nano::keypair setup_rep (nano::test::system & system, nano::node & node, nano::u
 				.balance (balance - amount)
 				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				.work (*system.work.generate (latest))
-				.build_shared ();
+				.build ();
 
 	auto open = builder
 				.open ()
@@ -35,11 +38,10 @@ nano::keypair setup_rep (nano::test::system & system, nano::node & node, nano::u
 				.account (key.pub)
 				.sign (key.prv, key.pub)
 				.work (*system.work.generate (key.pub))
-				.build_shared ();
+				.build ();
 
 	EXPECT_TRUE (nano::test::process (node, { send, open }));
-	EXPECT_TRUE (nano::test::start_elections (system, node, { send, open }, true));
-	EXPECT_TIMELY (5s, nano::test::confirmed (node, { send, open }));
+	nano::test::confirm (node.ledger, open->hash ());
 
 	return key;
 }
@@ -81,7 +83,7 @@ std::vector<std::shared_ptr<nano::block>> setup_blocks (nano::test::system & sys
 					.balance (balance)
 					.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					.work (*system.work.generate (latest))
-					.build_shared ();
+					.build ();
 
 		auto open = builder
 					.open ()
@@ -90,7 +92,7 @@ std::vector<std::shared_ptr<nano::block>> setup_blocks (nano::test::system & sys
 					.account (key.pub)
 					.sign (key.prv, key.pub)
 					.work (*system.work.generate (key.pub))
-					.build_shared ();
+					.build ();
 
 		latest = send->hash ();
 
@@ -104,8 +106,7 @@ std::vector<std::shared_ptr<nano::block>> setup_blocks (nano::test::system & sys
 	EXPECT_TRUE (nano::test::process (node, receives));
 
 	// Confirm whole genesis chain at once
-	EXPECT_TRUE (nano::test::start_elections (system, node, { sends.back () }, true));
-	EXPECT_TIMELY (5s, nano::test::confirmed (node, { sends }));
+	nano::test::confirm (node.ledger, sends.back ()->hash ());
 
 	std::cout << "setup_blocks done" << std::endl;
 
@@ -174,7 +175,7 @@ TEST (vote_cache, perf_singlethreaded)
 			auto vote = nano::test::make_vote (reps[rep_idx], hashes);
 
 			// Process the vote
-			node.active.vote (vote);
+			node.vote_router.vote (vote);
 		}
 	}
 
@@ -239,7 +240,7 @@ TEST (vote_cache, perf_multithreaded)
 				auto vote = nano::test::make_vote (reps[rep_idx], hashes);
 
 				// Process the vote
-				node.active.vote (vote);
+				node.vote_router.vote (vote);
 			}
 		}
 	});

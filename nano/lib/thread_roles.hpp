@@ -11,9 +11,11 @@ enum class name
 {
 	unknown,
 	io,
+	io_daemon,
 	work,
-	packet_processing,
+	message_processing,
 	vote_processing,
+	vote_cache_processing,
 	block_processing,
 	request_loop,
 	wallet_actions,
@@ -23,9 +25,12 @@ enum class name
 	signature_checking,
 	rpc_request_processor,
 	rpc_process_container,
-	confirmation_height_processing,
+	confirmation_height,
+	confirmation_height_notifications,
 	worker,
 	bootstrap_worker,
+	wallet_worker,
+	election_worker,
 	request_aggregator,
 	state_block_signature_verification,
 	epoch_upgrader,
@@ -42,7 +47,22 @@ enum class name
 	scheduler_manual,
 	scheduler_optimistic,
 	scheduler_priority,
+	rep_crawler,
+	local_block_broadcasting,
+	rep_tiers,
+	network_cleanup,
+	network_keepalive,
+	network_reachout,
+	signal_manager,
+	tcp_listener,
+	peer_history,
+	port_mapping,
+	stats,
+	vote_router,
+	monitor,
 };
+
+std::string_view to_string (name);
 
 /*
  * Get/Set the identifier for the current thread

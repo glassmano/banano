@@ -21,20 +21,27 @@ add_library(
   ${platform_sources}
   asio.hpp
   asio.cpp
+  block_sideband.hpp
+  block_sideband.cpp
+  block_type.hpp
+  block_type.cpp
+  block_uniquer.hpp
   blockbuilders.hpp
   blockbuilders.cpp
   blocks.hpp
   blocks.cpp
+  convert.cpp
+  convert.hpp
   char_traits.hpp
   cli.hpp
   cli.cpp
   config.hpp
   config.cpp
-  convert.cpp
-  convert.hpp
   configbase.hpp
   diagnosticsconfig.hpp
   diagnosticsconfig.cpp
+  env.hpp
+  env.cpp
   epoch.hpp
   epoch.cpp
   errors.hpp
@@ -52,19 +59,23 @@ add_library(
   lmdbconfig.cpp
   locks.hpp
   locks.cpp
-  logger_mt.hpp
+  logging.hpp
+  logging.cpp
+  logging_enums.hpp
+  logging_enums.cpp
   memory.hpp
   memory.cpp
   numbers.hpp
   numbers.cpp
+  object_stream.hpp
+  object_stream.cpp
+  object_stream_adapters.hpp
   observer_set.hpp
   optional_ptr.hpp
   processing_queue.hpp
   rate_limiting.hpp
   rate_limiting.cpp
   relaxed_atomic.hpp
-  rep_weights.hpp
-  rep_weights.cpp
   rocksdbconfig.hpp
   rocksdbconfig.cpp
   rpc_handler_interface.hpp
@@ -78,6 +89,7 @@ add_library(
   stats.cpp
   stats_enums.hpp
   stats_enums.cpp
+  stats_sinks.hpp
   stream.hpp
   thread_pool.hpp
   thread_pool.cpp
@@ -89,8 +101,6 @@ add_library(
   threading.cpp
   timer.hpp
   timer.cpp
-  tlsconfig.hpp
-  tlsconfig.cpp
   tomlconfig.hpp
   tomlconfig.cpp
   uniquer.hpp
@@ -102,9 +112,10 @@ add_library(
   work.cpp)
 
 include_directories(${CMAKE_SOURCE_DIR}/submodules)
-include_directories(${CMAKE_SOURCE_DIR}/submodules/cpptoml/include)
 include_directories(
   ${CMAKE_SOURCE_DIR}/submodules/nano-pow-server/deps/cpptoml/include)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/magic_enum/include/magic_enum)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/magic_enum/include)
 
 target_link_libraries(
   nano_lib
@@ -113,14 +124,15 @@ target_link_libraries(
   blake2
   ${CRYPTOPP_LIBRARY}
   ${CMAKE_DL_LIBS}
+  fmt::fmt
+  spdlog::spdlog
   Boost::iostreams
   Boost::asio
   Boost::circular_buffer
   Boost::dll
-  Boost::log_setup
-  Boost::log
   Boost::multiprecision
   Boost::program_options
+  Boost::property_tree
   Boost::stacktrace)
 
 if(NANO_STACKTRACE_BACKTRACE)

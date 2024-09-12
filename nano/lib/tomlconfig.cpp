@@ -166,8 +166,8 @@ std::shared_ptr<cpptoml::array> nano::tomlconfig::create_array (std::string cons
 }
 
 /**
-	 * Erase keys whose values are equal to the one in \p defaults
-	 */
+ * Erase keys whose values are equal to the one in \p defaults
+ */
 void nano::tomlconfig::erase_default_values (tomlconfig & defaults_a)
 {
 	std::shared_ptr<cpptoml::table> clone = std::dynamic_pointer_cast<cpptoml::table> (tree->clone ());
@@ -186,15 +186,39 @@ void nano::tomlconfig::erase_default_values (tomlconfig & defaults_a)
 	erase_defaults (defaults_l.get_tree (), self.get_tree (), get_tree ());
 }
 
-std::string nano::tomlconfig::to_string ()
+// Merges two TOML configurations and commenting values that are identical
+std::string nano::tomlconfig::merge_defaults (nano::tomlconfig & current_config, nano::tomlconfig & default_config)
 {
-	std::stringstream ss;
-	cpptoml::toml_writer writer{ ss, "" };
-	tree->accept (writer);
-	return ss.str ();
+	// Serialize both configs to commented strings
+	std::string defaults_str = default_config.to_string (true);
+	std::string current_str = current_config.to_string (true);
+
+	// Read both configs line by line
+	std::istringstream stream_defaults (defaults_str);
+	std::istringstream stream_current (current_str);
+	std::string line_defaults, line_current, result;
+
+	while (std::getline (stream_defaults, line_defaults) && std::getline (stream_current, line_current))
+	{
+		if (line_defaults == line_current)
+		{
+			// Use default value
+			result += line_defaults + "\n";
+		}
+		else
+		{
+			// Non default value. Removing the # to uncomment
+			size_t pos = line_current.find ('#');
+			debug_assert (pos != std::string::npos);
+			debug_assert (pos < line_current.length ());
+			result += line_current.substr (0, pos) + line_current.substr (pos + 1) + "\n";
+		}
+	}
+
+	return result;
 }
 
-std::string nano::tomlconfig::to_string_commented_entries ()
+std::string nano::tomlconfig::to_string (bool comment_values)
 {
 	std::stringstream ss, ss_processed;
 	cpptoml::toml_writer writer{ ss, "" };
@@ -202,9 +226,16 @@ std::string nano::tomlconfig::to_string_commented_entries ()
 	std::string line;
 	while (std::getline (ss, line, '\n'))
 	{
-		if (!line.empty () && line[0] != '#' && line[0] != '[')
+		if (!line.empty () && line[0] != '[')
 		{
-			line = "#" + line;
+			if (line[0] == '#') // Already commented
+			{
+				line = "\t" + line;
+			}
+			else
+			{
+				line = comment_values ? "\t# " + line : "\t" + line;
+			}
 		}
 		ss_processed << line << std::endl;
 	}

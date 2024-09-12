@@ -2,14 +2,15 @@
 
 #include <nano/crypto/blake2/blake2.h>
 #include <nano/lib/blockbuilders.hpp>
-#include <nano/lib/blocks.hpp>
+#include <nano/lib/common.hpp>
 #include <nano/lib/config.hpp>
 #include <nano/lib/epoch.hpp>
 #include <nano/lib/numbers.hpp>
-#include <nano/lib/rep_weights.hpp>
+#include <nano/lib/object_stream.hpp>
 #include <nano/lib/stats.hpp>
 #include <nano/lib/timer.hpp>
 #include <nano/lib/utility.hpp>
+#include <nano/secure/rep_weights.hpp>
 #include <nano/secure/vote.hpp>
 
 #include <boost/iterator/transform_iterator.hpp>
@@ -73,15 +74,8 @@ struct hash<::nano::qualified_root>
 		return std::hash<::nano::qualified_root> () (value_a);
 	}
 };
-template <>
-struct hash<::nano::root>
-{
-	size_t operator() (::nano::root const & value_a) const
-	{
-		return std::hash<::nano::root> () (value_a);
-	}
-};
 }
+
 namespace nano
 {
 /**
@@ -98,60 +92,11 @@ public:
 	nano::raw_key prv;
 };
 
-/**
- * Latest information about an account
- */
-class account_info final
-{
-public:
-	account_info () = default;
-	account_info (nano::block_hash const &, nano::account const &, nano::block_hash const &, nano::amount const &, nano::seconds_t modified, uint64_t, epoch);
-	bool deserialize (nano::stream &);
-	bool operator== (nano::account_info const &) const;
-	bool operator!= (nano::account_info const &) const;
-	size_t db_size () const;
-	nano::epoch epoch () const;
-	nano::block_hash head{ 0 };
-	nano::account representative{};
-	nano::block_hash open_block{ 0 };
-	nano::amount balance{ 0 };
-	/** Seconds since posix epoch */
-	nano::seconds_t modified{ 0 };
-	uint64_t block_count{ 0 };
-	nano::epoch epoch_m{ nano::epoch::epoch_0 };
-};
-
-/**
- * Information on an uncollected send
- */
-class pending_info final
-{
-public:
-	pending_info () = default;
-	pending_info (nano::account const &, nano::amount const &, nano::epoch);
-	size_t db_size () const;
-	bool deserialize (nano::stream &);
-	bool operator== (nano::pending_info const &) const;
-	nano::account source{};
-	nano::amount amount{ 0 };
-	nano::epoch epoch{ nano::epoch::epoch_0 };
-};
-class pending_key final
-{
-public:
-	pending_key () = default;
-	pending_key (nano::account const &, nano::block_hash const &);
-	bool deserialize (nano::stream &);
-	bool operator== (nano::pending_key const &) const;
-	nano::account const & key () const;
-	nano::account account{};
-	nano::block_hash hash{ 0 };
-};
-
 class endpoint_key final
 {
 public:
 	endpoint_key () = default;
+	endpoint_key (nano::endpoint const &);
 
 	/*
 	 * @param address_a This should be in network byte order
@@ -168,6 +113,8 @@ public:
 	 * @return The port in host byte order
 	 */
 	uint16_t port () const;
+
+	nano::endpoint endpoint () const;
 
 private:
 	// Both stored internally in network byte order
@@ -244,15 +191,7 @@ namespace confirmation_height
 	uint64_t const unbounded_cutoff{ 16384 };
 }
 
-enum class vote_code
-{
-	invalid, // Vote is not signed correctly
-	replay, // Vote does not have the highest timestamp, it's a replay
-	vote, // Vote has the highest timestamp
-	indeterminate // Unknown if replay or vote
-};
-
-enum class process_result
+enum class block_status
 {
 	progress, // Hasn't been seen before, signed correctly
 	bad_signature, // Signature was bad, forged or transmission error
@@ -269,19 +208,16 @@ enum class process_result
 	block_position, // This block cannot follow the previous block
 	insufficient_work // Insufficient work for this block, even though it passed the minimal validation
 };
-class process_return final
-{
-public:
-	nano::process_result code;
-};
+
+std::string_view to_string (block_status);
+nano::stat::detail to_stat_detail (block_status);
+
 enum class tally_result
 {
 	vote,
 	changed,
 	confirm
 };
-
-nano::stat::detail to_stat_detail (process_result);
 
 class network_params;
 
@@ -302,16 +238,6 @@ public:
 	std::shared_ptr<nano::block> genesis;
 	nano::uint128_t genesis_amount;
 	nano::account burn_account;
-	nano::account nano_dev_final_votes_canary_account;
-	nano::account nano_beta_final_votes_canary_account;
-	nano::account nano_live_final_votes_canary_account;
-	nano::account nano_test_final_votes_canary_account;
-	nano::account final_votes_canary_account;
-	uint64_t nano_dev_final_votes_canary_height;
-	uint64_t nano_beta_final_votes_canary_height;
-	uint64_t nano_live_final_votes_canary_height;
-	uint64_t nano_test_final_votes_canary_height;
-	uint64_t final_votes_canary_height;
 	nano::epochs epochs;
 };
 
@@ -399,64 +325,6 @@ public:
 	nano::node_constants node;
 	nano::portmapping_constants portmapping;
 	nano::bootstrap_constants bootstrap;
-};
-
-enum class confirmation_height_mode
-{
-	automatic,
-	unbounded,
-	bounded
-};
-
-/* Holds flags for various cacheable data. For most CLI operations caching is unnecessary
- * (e.g getting the cemented block count) so it can be disabled for performance reasons. */
-class generate_cache
-{
-public:
-	bool reps = true;
-	bool cemented_count = true;
-	bool unchecked_count = true;
-	bool account_count = true;
-	bool block_count = true;
-
-	void enable_all ();
-};
-
-/* Holds an in-memory cache of various counts */
-class ledger_cache
-{
-public:
-	nano::rep_weights rep_weights;
-	std::atomic<uint64_t> cemented_count{ 0 };
-	std::atomic<uint64_t> block_count{ 0 };
-	std::atomic<uint64_t> pruned_count{ 0 };
-	std::atomic<uint64_t> account_count{ 0 };
-	std::atomic<bool> final_votes_confirmation_canary{ false };
-};
-
-/* Defines the possible states for an election to stop in */
-enum class election_status_type : uint8_t
-{
-	ongoing = 0,
-	active_confirmed_quorum = 1,
-	active_confirmation_height = 2,
-	inactive_confirmation_height = 3,
-	stopped = 5
-};
-
-/* Holds a summary of an election */
-class election_status final
-{
-public:
-	std::shared_ptr<nano::block> winner;
-	nano::amount tally;
-	nano::amount final_tally;
-	std::chrono::milliseconds election_end;
-	std::chrono::milliseconds election_duration;
-	unsigned confirmation_request_count;
-	unsigned block_count;
-	unsigned voter_count;
-	election_status_type type;
 };
 
 nano::wallet_id random_wallet_id ();

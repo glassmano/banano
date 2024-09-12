@@ -10,7 +10,6 @@
 #include <boost/thread/thread.hpp>
 
 #include <atomic>
-#include <queue>
 
 namespace mi = boost::multi_index;
 
@@ -26,7 +25,7 @@ class node;
 class bootstrap_connections;
 namespace transport
 {
-	class channel_tcp;
+	class tcp_channel;
 }
 enum class bootstrap_mode
 {
@@ -106,7 +105,7 @@ public:
 	void notify_listeners (bool);
 	void add_observer (std::function<void (bool)> const &);
 	bool in_progress ();
-	void block_processed (store::transaction const & tx, nano::process_return const & result, nano::block const & block);
+	void block_processed (store::transaction const & tx, nano::block_status const & result, nano::block const & block);
 	std::shared_ptr<nano::bootstrap_connections> connections;
 	std::shared_ptr<nano::bootstrap_attempt> new_attempt ();
 	bool has_new_attempts ();

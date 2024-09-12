@@ -3,11 +3,16 @@
 #include <cstdint>
 #include <string_view>
 
+#include <magic_enum.hpp>
+
 namespace nano::stat
 {
 /** Primary statistics type */
-enum class type : uint8_t
+enum class type
 {
+	_invalid = 0, // Default value, should not be used
+
+	test,
 	traffic_tcp,
 	error,
 	message,
@@ -15,56 +20,120 @@ enum class type : uint8_t
 	ledger,
 	rollback,
 	bootstrap,
+	network,
 	tcp_server,
 	vote,
+	vote_processor,
+	vote_processor_tier,
+	vote_processor_overfill,
 	election,
+	election_cleanup,
+	election_vote,
 	http_callback,
 	ipc,
 	tcp,
+	tcp_channels,
+	tcp_channels_rejected,
+	tcp_channels_purge,
+	tcp_listener,
+	tcp_listener_rejected,
+	channel,
+	socket,
 	confirmation_height,
 	confirmation_observer,
+	confirming_set,
 	drop,
 	aggregator,
 	requests,
+	request_aggregator,
+	request_aggregator_vote,
+	request_aggregator_replies,
 	filter,
 	telemetry,
 	vote_generator,
 	vote_cache,
+	vote_cache_processor,
 	hinting,
 	blockprocessor,
+	blockprocessor_source,
+	blockprocessor_result,
+	blockprocessor_overfill,
+	bootstrap_ascending,
+	bootstrap_ascending_accounts,
+	bootstrap_ascending_verify,
+	bootstrap_ascending_process,
+	bootstrap_ascending_request,
+	bootstrap_ascending_reply,
+	bootstrap_ascending_next,
 	bootstrap_server,
+	bootstrap_server_request,
+	bootstrap_server_overfill,
+	bootstrap_server_response,
 	active,
-	active_started,
-	active_confirmed,
-	active_dropped,
-	active_timeout,
+	active_elections,
+	active_elections_started,
+	active_elections_stopped,
+	active_elections_confirmed,
+	active_elections_dropped,
+	active_elections_timeout,
+	active_elections_cancelled,
+	active_elections_cemented,
 	backlog,
 	unchecked,
 	election_scheduler,
+	election_bucket,
 	optimistic_scheduler,
 	handshake,
-
-	bootstrap_ascending,
-	bootstrap_ascending_accounts,
+	rep_crawler,
+	local_block_broadcaster,
+	rep_tiers,
+	syn_cookies,
+	peer_history,
+	port_mapping,
+	message_processor,
+	message_processor_overfill,
+	message_processor_type,
 
 	_last // Must be the last enum
 };
 
 /** Optional detail type */
-enum class detail : uint8_t
+enum class detail
 {
-	all = 0,
+	_invalid = 0, // Default value, should not be used
 
 	// common
+	all,
 	ok,
-	loop,
+	test,
 	total,
+	loop,
+	loop_cleanup,
 	process,
+	processed,
+	ignored,
 	update,
+	updated,
+	inserted,
+	erased,
 	request,
 	broadcast,
 	cleanup,
 	top,
+	none,
+	success,
+	unknown,
+	cache,
+	rebroadcast,
+	queue_overflow,
+	triggered,
+	notify,
+	duplicate,
+	confirmed,
+	unconfirmed,
+	cemented,
+	cooldown,
+	empty,
 
 	// processing queue
 	queue,
@@ -93,6 +162,7 @@ enum class detail : uint8_t
 	old,
 	gap_previous,
 	gap_source,
+	rollback,
 	rollback_failed,
 	progress,
 	bad_signature,
@@ -103,6 +173,20 @@ enum class detail : uint8_t
 	balance_mismatch,
 	representative_mismatch,
 	block_position,
+
+	// blockprocessor
+	process_blocking,
+	process_blocking_timeout,
+	force,
+
+	// block source
+	live,
+	live_originator,
+	bootstrap,
+	bootstrap_legacy,
+	unchecked,
+	local,
+	forced,
 
 	// message specific
 	not_a_type,
@@ -134,24 +218,38 @@ enum class detail : uint8_t
 	frontier_confirmation_failed,
 	error_socket_close,
 
-	// vote specific
-	vote_valid,
-	vote_replay,
-	vote_indeterminate,
-	vote_invalid,
+	// vote result
+	vote,
+	valid,
+	replay,
+	indeterminate,
+
+	// vote processor
 	vote_overflow,
+	vote_ignored,
 
 	// election specific
 	vote_new,
 	vote_processed,
 	vote_cached,
 	election_block_conflict,
+	election_restart,
+	election_not_confirmed,
+	election_hinted_overflow,
+	election_hinted_confirmed,
+	election_hinted_drop,
+	broadcast_vote,
+	broadcast_vote_normal,
+	broadcast_vote_final,
 	generate_vote,
 	generate_vote_normal,
 	generate_vote_final,
+	broadcast_block_initial,
+	broadcast_block_repeat,
 
 	// election types
-	normal,
+	manual,
+	priority,
 	hinted,
 	optimistic,
 
@@ -170,22 +268,61 @@ enum class detail : uint8_t
 	invalid_frontier_req_message,
 	invalid_asc_pull_req_message,
 	invalid_asc_pull_ack_message,
-	message_too_big,
+	message_size_too_big,
 	outdated_version,
 
+	// network
+	loop_keepalive,
+	loop_reachout,
+	loop_reachout_cached,
+	merge_peer,
+	reachout_live,
+	reachout_cached,
+
 	// tcp
-	tcp_accept_success,
-	tcp_accept_failure,
 	tcp_write_drop,
 	tcp_write_no_socket_drop,
-	tcp_excluded,
-	tcp_max_per_ip,
-	tcp_max_per_subnetwork,
 	tcp_silent_connection_drop,
 	tcp_io_timeout_drop,
 	tcp_connect_error,
 	tcp_read_error,
 	tcp_write_error,
+
+	// tcp_listener
+	accept_success,
+	accept_error,
+	accept_failure,
+	accept_rejected,
+	close_error,
+	max_per_ip,
+	max_per_subnetwork,
+	max_attempts,
+	max_attempts_per_ip,
+	excluded,
+	erase_dead,
+	connect_initiate,
+	connect_failure,
+	connect_error,
+	connect_rejected,
+	connect_success,
+	attempt_timeout,
+	not_a_peer,
+
+	// tcp_channels
+	channel_accepted,
+	channel_rejected,
+	channel_duplicate,
+	idle,
+	outdated,
+
+	// tcp_server
+	handshake,
+	handshake_abort,
+	handshake_error,
+	handshake_network_error,
+	handshake_initiate,
+	handshake_response,
+	handshake_response_invalid,
 
 	// ipc
 	invocations,
@@ -195,7 +332,7 @@ enum class detail : uint8_t
 	blocks_confirmed_unbounded,
 	blocks_confirmed_bounded,
 
-	// [request] aggregator
+	// request aggregator
 	aggregator_accepted,
 	aggregator_dropped,
 
@@ -206,9 +343,17 @@ enum class detail : uint8_t
 	requests_generated_votes,
 	requests_cannot_vote,
 	requests_unknown,
+	requests_non_final,
+	requests_final,
+
+	// request_aggregator
+	request_hashes,
+	overfill_hashes,
+	normal_vote,
+	final_vote,
 
 	// duplicate
-	duplicate_publish,
+	duplicate_publish_message,
 
 	// telemetry
 	invalid_signature,
@@ -239,18 +384,24 @@ enum class detail : uint8_t
 	response,
 	write_error,
 	blocks,
-	response_blocks,
-	response_account_info,
 	channel_full,
-	response_frontiers,
 	frontiers,
+	account_info,
 
 	// backlog
 	activated,
+	activate_failed,
+	activate_skip,
+	activate_full,
 
 	// active
 	insert,
 	insert_failed,
+	election_cleanup,
+
+	// active_elections
+	started,
+	stopped,
 
 	// unchecked
 	put,
@@ -275,6 +426,12 @@ enum class detail : uint8_t
 	track,
 	timeout,
 	nothing_new,
+	account_info_empty,
+	loop_database,
+	loop_dependencies,
+	duplicate_request,
+	invalid_response_type,
+	timestamp_reset,
 
 	// bootstrap ascending accounts
 	prioritize,
@@ -282,28 +439,103 @@ enum class detail : uint8_t
 	block,
 	unblock,
 	unblock_failed,
+	dependency_update,
+	dependency_update_failed,
 
+	next_none,
 	next_priority,
 	next_database,
-	next_none,
+	next_blocking,
+	next_dependency,
 
 	blocking_insert,
 	blocking_erase_overflow,
 	priority_insert,
-	priority_erase_threshold,
-	priority_erase_block,
+	priority_erase_by_threshold,
+	priority_erase_by_blocking,
 	priority_erase_overflow,
 	deprioritize,
 	deprioritize_failed,
+	sync_dependencies,
+
+	request_blocks,
+	request_account_info,
+
+	// active
+	started_hinted,
+	started_optimistic,
+	// rep_crawler
+	channel_dead,
+	query_target_failed,
+	query_channel_busy,
+	query_sent,
+	query_duplicate,
+	rep_timeout,
+	query_timeout,
+	query_completion,
+	crawl_aggressive,
+	crawl_normal,
+
+	// block broadcaster
+	broadcast_normal,
+	broadcast_aggressive,
+	erase_old,
+	erase_confirmed,
+
+	// rep tiers
+	tier_1,
+	tier_2,
+	tier_3,
+
+	// confirming_set
+	notify_cemented,
+	notify_already_cemented,
+	notify_intermediate,
+	already_cemented,
+	cementing,
+	cemented_hash,
+
+	// election_state
+	passive,
+	active,
+	expired_confirmed,
+	expired_unconfirmed,
+	cancelled,
+
+	// election_status_type
+	ongoing,
+	active_confirmed_quorum,
+	active_confirmation_height,
+	inactive_confirmation_height,
+
+	// election bucket
+	activate_success,
+	cancel_lowest,
+
+	// query_type
+	blocks_by_hash,
+	blocks_by_account,
+	account_info_by_hash,
 
 	_last // Must be the last enum
 };
 
 /** Direction of the stat. If the direction is irrelevant, use in */
-enum class dir : uint8_t
+enum class dir
 {
 	in,
 	out,
+
+	_last // Must be the last enum
+};
+
+enum class sample
+{
+	_invalid = 0, // Default value, should not be used
+
+	active_election_duration,
+	bootstrap_tag_duration,
+	rep_response_time,
 
 	_last // Must be the last enum
 };
@@ -311,7 +543,24 @@ enum class dir : uint8_t
 
 namespace nano
 {
-std::string_view to_string (stat::type type);
-std::string_view to_string (stat::detail detail);
-std::string_view to_string (stat::dir dir);
+std::string_view to_string (stat::type);
+std::string_view to_string (stat::detail);
+std::string_view to_string (stat::dir);
+std::string_view to_string (stat::sample);
 }
+
+// Ensure that the enum_range is large enough to hold all values (including future ones)
+template <>
+struct magic_enum::customize::enum_range<nano::stat::type>
+{
+	static constexpr int min = 0;
+	static constexpr int max = 128;
+};
+
+// Ensure that the enum_range is large enough to hold all values (including future ones)
+template <>
+struct magic_enum::customize::enum_range<nano::stat::detail>
+{
+	static constexpr int min = 0;
+	static constexpr int max = 512;
+};

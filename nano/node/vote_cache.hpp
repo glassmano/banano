@@ -16,6 +16,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 namespace mi = boost::multi_index;
@@ -23,9 +24,11 @@ namespace mi = boost::multi_index;
 namespace nano
 {
 class node;
-class active_transactions;
+class active_elections;
 class election;
 class vote;
+enum class vote_code;
+enum class vote_source;
 }
 
 namespace nano
@@ -37,58 +40,84 @@ public:
 	nano::error serialize (nano::tomlconfig & toml) const;
 
 public:
-	std::size_t max_size{ 1024 * 128 };
-	std::size_t max_voters{ 128 };
-	std::chrono::seconds age_cutoff{ 5 * 60 };
+	std::size_t max_size{ 1024 * 64 };
+	std::size_t max_voters{ 64 };
+	std::chrono::seconds age_cutoff{ 15 * 60 };
+};
+
+/**
+ * Stores votes associated with a single block hash
+ */
+class vote_cache_entry final
+{
+private:
+	struct voter_entry
+	{
+		nano::account representative;
+		nano::uint128_t weight;
+		std::shared_ptr<nano::vote> vote;
+	};
+
+public:
+	explicit vote_cache_entry (nano::block_hash const & hash);
+
+	/**
+	 * Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater
+	 * @return true if current tally changed, false otherwise
+	 */
+	bool vote (std::shared_ptr<nano::vote> const & vote, nano::uint128_t const & rep_weight, std::size_t max_voters);
+
+	std::size_t size () const;
+	std::vector<std::shared_ptr<nano::vote>> votes () const;
+
+public: // Keep accessors inlined
+	nano::block_hash hash () const
+	{
+		return hash_m;
+	}
+	std::chrono::steady_clock::time_point last_vote () const
+	{
+		return last_vote_m;
+	}
+	nano::uint128_t tally () const
+	{
+		return tally_m;
+	}
+	nano::uint128_t final_tally () const
+	{
+		return final_tally_m;
+	}
+
+private:
+	bool vote_impl (std::shared_ptr<nano::vote> const & vote, nano::uint128_t const & rep_weight, std::size_t max_voters);
+	std::pair<nano::uint128_t, nano::uint128_t> calculate_tally () const; // <tally, final_tally>
+
+	// clang-format off
+	class tag_representative {};
+	class tag_weight {};
+	// clang-format on
+
+	// clang-format off
+	using ordered_voters = boost::multi_index_container<voter_entry,
+	mi::indexed_by<
+		mi::hashed_unique<mi::tag<tag_representative>,
+			mi::member<voter_entry, nano::account, &voter_entry::representative>>,
+		mi::ordered_non_unique<mi::tag<tag_weight>,
+			mi::member<voter_entry, nano::uint128_t, &voter_entry::weight>>
+	>>;
+	// clang-format on
+	ordered_voters voters;
+
+	nano::block_hash const hash_m;
+	std::chrono::steady_clock::time_point last_vote_m{};
+	nano::uint128_t tally_m{ 0 };
+	nano::uint128_t final_tally_m{ 0 };
 };
 
 class vote_cache final
 {
 public:
-	/**
-	 * Stores votes associated with a single block hash
-	 */
-	class entry final
-	{
-	public:
-		struct voter_entry
-		{
-			nano::account representative;
-			uint64_t timestamp;
-		};
-
-	public:
-		explicit entry (nano::block_hash const & hash);
-
-		/**
-		 * Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater
-		 * @return true if current tally changed, false otherwise
-		 */
-		bool vote (nano::account const & representative, uint64_t const & timestamp, nano::uint128_t const & rep_weight, std::size_t max_voters);
-
-		/**
-		 * Inserts votes stored in this entry into an election
-		 */
-		std::size_t fill (std::shared_ptr<nano::election> const & election) const;
-
-		std::size_t size () const;
-		nano::block_hash hash () const;
-		nano::uint128_t tally () const;
-		nano::uint128_t final_tally () const;
-		std::vector<voter_entry> voters () const;
-		std::chrono::steady_clock::time_point last_vote () const;
-
-	private:
-		bool vote_impl (nano::account const & representative, uint64_t const & timestamp, nano::uint128_t const & rep_weight, std::size_t max_voters);
-
-		nano::block_hash const hash_m;
-		std::vector<voter_entry> voters_m;
-
-		nano::uint128_t tally_m{ 0 };
-		nano::uint128_t final_tally_m{ 0 };
-
-		std::chrono::steady_clock::time_point last_vote_m{};
-	};
+	using entry = vote_cache_entry;
 
 public:
 	explicit vote_cache (vote_cache_config const &, nano::stats &);
@@ -96,12 +125,14 @@ public:
 	/**
 	 * Adds a new vote to cache
 	 */
-	void vote (nano::block_hash const & hash, std::shared_ptr<nano::vote> vote);
+	void insert (
+	std::shared_ptr<nano::vote> const & vote,
+	std::unordered_map<nano::block_hash, nano::vote_code> const & results = {});
 
 	/**
 	 * Tries to find an entry associated with block hash
 	 */
-	std::optional<entry> find (nano::block_hash const & hash) const;
+	std::vector<std::shared_ptr<nano::vote>> find (nano::block_hash const & hash) const;
 
 	/**
 	 * Removes an entry associated with block hash, does nothing if entry does not exist
@@ -126,7 +157,7 @@ public:
 	 * The blocks are sorted in descending order by final tally, then by tally
 	 * @param min_tally minimum tally threshold, entries below with their voting weight below this will be ignored
 	 */
-	std::vector<top_entry> top (nano::uint128_t const & min_tally);
+	std::deque<top_entry> top (nano::uint128_t const & min_tally);
 
 public: // Container info
 	std::unique_ptr<nano::container_info_component> collect_container_info (std::string const & name) const;
@@ -142,6 +173,7 @@ private: // Dependencies
 	nano::stats & stats;
 
 private:
+	void insert_impl (std::shared_ptr<nano::vote> const &, nano::block_hash const & hash, nano::uint128_t const & rep_weight);
 	void cleanup ();
 
 	// clang-format off
@@ -153,9 +185,9 @@ private:
 	// clang-format off
 	using ordered_cache = boost::multi_index_container<entry,
 	mi::indexed_by<
-		mi::sequenced<mi::tag<tag_sequenced>>,
 		mi::hashed_unique<mi::tag<tag_hash>,
 			mi::const_mem_fun<entry, nano::block_hash, &entry::hash>>,
+		mi::sequenced<mi::tag<tag_sequenced>>,
 		mi::ordered_non_unique<mi::tag<tag_tally>,
 			mi::const_mem_fun<entry, nano::uint128_t, &entry::tally>, std::greater<>> // DESC
 	>>;

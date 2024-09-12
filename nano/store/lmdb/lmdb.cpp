@@ -1,6 +1,8 @@
+#include <nano/lib/numbers.hpp>
 #include <nano/lib/stream.hpp>
 #include <nano/lib/utility.hpp>
 #include <nano/secure/ledger.hpp>
+#include <nano/secure/parallel_traversal.hpp>
 #include <nano/store/lmdb/iterator.hpp>
 #include <nano/store/lmdb/lmdb.hpp>
 #include <nano/store/lmdb/wallet_value.hpp>
@@ -12,11 +14,10 @@
 
 #include <queue>
 
-nano::store::lmdb::component::component (nano::logger_mt & logger_a, std::filesystem::path const & path_a, nano::ledger_constants & constants, nano::txn_tracking_config const & txn_tracking_config_a, std::chrono::milliseconds block_processor_batch_max_time_a, nano::lmdb_config const & lmdb_config_a, bool backup_before_upgrade_a) :
+nano::store::lmdb::component::component (nano::logger & logger_a, std::filesystem::path const & path_a, nano::ledger_constants & constants, nano::txn_tracking_config const & txn_tracking_config_a, std::chrono::milliseconds block_processor_batch_max_time_a, nano::lmdb_config const & lmdb_config_a, bool backup_before_upgrade_a) :
 	// clang-format off
 	nano::store::component{
 		block_store,
-		frontier_store,
 		account_store,
 		pending_store,
 		online_weight_store,
@@ -24,11 +25,12 @@ nano::store::lmdb::component::component (nano::logger_mt & logger_a, std::filesy
 		peer_store,
 		confirmation_height_store,
 		final_vote_store,
-		version_store
+		version_store,
+		rep_weight_store,
+		false // write_queue use_noops
 	},
 	// clang-format on
 	block_store{ *this },
-	frontier_store{ *this },
 	account_store{ *this },
 	pending_store{ *this },
 	online_weight_store{ *this },
@@ -37,7 +39,8 @@ nano::store::lmdb::component::component (nano::logger_mt & logger_a, std::filesy
 	confirmation_height_store{ *this },
 	final_vote_store{ *this },
 	version_store{ *this },
-	logger (logger_a),
+	rep_weight_store{ *this },
+	logger{ logger_a },
 	env (error, path_a, nano::store::lmdb::env::options::make ().set_config (lmdb_config_a).set_use_no_mem_init (true)),
 	mdb_txn_tracker (logger_a, txn_tracking_config_a, block_processor_batch_max_time_a),
 	txn_tracking_enabled (txn_tracking_config_a.enable)
@@ -66,10 +69,11 @@ nano::store::lmdb::component::component (nano::logger_mt & logger_a, std::filesy
 		{
 			if (!is_fresh_db)
 			{
-				logger.always_log ("Upgrade in progress...");
+				logger.info (nano::log::type::lmdb, "Upgrade in progress...");
+
 				if (backup_before_upgrade_a)
 				{
-					create_backup_file (env, path_a, logger_a);
+					create_backup_file (env, path_a, logger);
 				}
 			}
 			auto needs_vacuuming = false;
@@ -84,9 +88,18 @@ nano::store::lmdb::component::component (nano::logger_mt & logger_a, std::filesy
 
 			if (needs_vacuuming)
 			{
-				logger.always_log ("Preparing vacuum...");
+				logger.info (nano::log::type::lmdb, "Ledger vaccum in progress...");
+
 				auto vacuum_success = vacuum_after_upgrade (path_a, lmdb_config_a);
-				logger.always_log (vacuum_success ? "Vacuum succeeded." : "Failed to vacuum. (Optional) Ensure enough disk space is available for a copy of the database and try to vacuum after shutting down the node");
+				if (vacuum_success)
+				{
+					logger.info (nano::log::type::lmdb, "Ledger vacuum completed");
+				}
+				else
+				{
+					logger.error (nano::log::type::lmdb, "Ledger vaccum failed");
+					logger.error (nano::log::type::lmdb, "(Optional) Please ensure enough disk space is available for a copy of the database and try to vacuum after shutting down the node");
+				}
 			}
 		}
 		else
@@ -182,7 +195,6 @@ nano::store::lmdb::txn_callbacks nano::store::lmdb::component::create_txn_callba
 
 void nano::store::lmdb::component::open_databases (bool & error_a, store::transaction const & transaction_a, unsigned flags)
 {
-	error_a |= mdb_dbi_open (env.tx (transaction_a), "frontiers", flags, &frontier_store.frontiers_handle) != 0;
 	error_a |= mdb_dbi_open (env.tx (transaction_a), "online_weight", flags, &online_weight_store.online_weight_handle) != 0;
 	error_a |= mdb_dbi_open (env.tx (transaction_a), "meta", flags, &version_store.meta_handle) != 0;
 	error_a |= mdb_dbi_open (env.tx (transaction_a), "peers", flags, &peer_store.peers_handle) != 0;
@@ -194,44 +206,123 @@ void nano::store::lmdb::component::open_databases (bool & error_a, store::transa
 	pending_store.pending_handle = pending_store.pending_v0_handle;
 	error_a |= mdb_dbi_open (env.tx (transaction_a), "final_votes", flags, &final_vote_store.final_votes_handle) != 0;
 	error_a |= mdb_dbi_open (env.tx (transaction_a), "blocks", MDB_CREATE, &block_store.blocks_handle) != 0;
+	error_a |= mdb_dbi_open (env.tx (transaction_a), "rep_weights", flags, &rep_weight_store.rep_weights_handle) != 0;
 }
 
-bool nano::store::lmdb::component::do_upgrades (store::write_transaction & transaction_a, nano::ledger_constants & constants, bool & needs_vacuuming)
+bool nano::store::lmdb::component::do_upgrades (store::write_transaction & transaction, nano::ledger_constants & constants, bool & needs_vacuuming)
 {
 	auto error (false);
-	auto version_l = version.get (transaction_a);
+	auto version_l = version.get (transaction);
 	if (version_l < version_minimum)
 	{
-		logger.always_log (boost::str (boost::format ("The version of the ledger (%1%) is lower than the minimum (%2%) which is supported for upgrades. Either upgrade to a v19, v20 or v21 node first or delete the ledger.") % version_l % version_minimum));
+		logger.critical (nano::log::type::lmdb, "The version of the ledger ({}) is lower than the minimum ({}) which is supported for upgrades. Either upgrade a node first or delete the ledger.", version_l, version_minimum);
 		return true;
 	}
 	switch (version_l)
 	{
 		case 21:
-			upgrade_v21_to_v22 (transaction_a);
+			upgrade_v21_to_v22 (transaction);
 			[[fallthrough]];
 		case 22:
+			upgrade_v22_to_v23 (transaction);
+			[[fallthrough]];
+		case 23:
+			upgrade_v23_to_v24 (transaction);
+			[[fallthrough]];
+		case 24:
 			break;
 		default:
-			logger.always_log (boost::str (boost::format ("The version of the ledger (%1%) is too high for this node") % version_l));
+			logger.critical (nano::log::type::lmdb, "The version of the ledger ({}) is too high for this node", version_l);
 			error = true;
 			break;
 	}
 	return error;
 }
 
-void nano::store::lmdb::component::upgrade_v21_to_v22 (store::write_transaction const & transaction_a)
+void nano::store::lmdb::component::upgrade_v21_to_v22 (store::write_transaction & transaction)
 {
-	logger.always_log ("Preparing v21 to v22 database upgrade...");
+	logger.info (nano::log::type::lmdb, "Upgrading database from v21 to v22...");
+
 	MDB_dbi unchecked_handle{ 0 };
-	release_assert (!mdb_dbi_open (env.tx (transaction_a), "unchecked", MDB_CREATE, &unchecked_handle));
-	release_assert (!mdb_drop (env.tx (transaction_a), unchecked_handle, 1)); // del = 1, to delete it from the environment and close the DB handle.
-	version.put (transaction_a, 22);
-	logger.always_log ("Finished removing unchecked table");
+	release_assert (!mdb_dbi_open (env.tx (transaction), "unchecked", MDB_CREATE, &unchecked_handle));
+	release_assert (!mdb_drop (env.tx (transaction), unchecked_handle, 1)); // del = 1, to delete it from the environment and close the DB handle.
+	version.put (transaction, 22);
+
+	logger.info (nano::log::type::lmdb, "Upgrading database from v21 to v22 completed");
+}
+
+// Fill rep_weights table with all existing representatives and their vote weight
+void nano::store::lmdb::component::upgrade_v22_to_v23 (store::write_transaction & transaction)
+{
+	logger.info (nano::log::type::lmdb, "Upgrading database from v22 to v23...");
+
+	drop (transaction, tables::rep_weights);
+	transaction.refresh ();
+
+	release_assert (rep_weight.begin (tx_begin_read ()) == rep_weight.end (), "rep weights table must be empty before upgrading to v23");
+
+	auto iterate_accounts = [this] (auto && func) {
+		auto transaction = tx_begin_read ();
+
+		// Manually create v22 compatible iterator to read accounts
+		auto it = make_iterator<nano::account, nano::account_info_v22> (transaction, tables::accounts);
+		auto const end = store::iterator<nano::account, nano::account_info_v22> (nullptr);
+
+		for (; it != end; ++it)
+		{
+			auto const & account = it->first;
+			auto const & account_info = it->second;
+
+			func (account, account_info);
+		}
+	};
+
+	// TODO: Make this smaller in dev builds
+	const size_t batch_size = 250000;
+
+	size_t processed = 0;
+	iterate_accounts ([this, &transaction, &processed] (nano::account const & account, nano::account_info_v22 const & account_info) {
+		if (!account_info.balance.is_zero ())
+		{
+			nano::uint128_t total{ 0 };
+			nano::store::lmdb::db_val value;
+			auto status = get (transaction, tables::rep_weights, account_info.representative, value);
+			if (success (status))
+			{
+				total = nano::amount{ value }.number ();
+			}
+			total += account_info.balance.number ();
+			status = put (transaction, tables::rep_weights, account_info.representative, nano::amount{ total });
+			release_assert_success (status);
+		}
+
+		processed++;
+		if (processed % batch_size == 0)
+		{
+			logger.info (nano::log::type::lmdb, "Processed {} accounts", processed);
+			transaction.refresh (); // Refresh to prevent excessive memory usage
+		}
+	});
+
+	logger.info (nano::log::type::lmdb, "Done processing {} accounts", processed);
+	version.put (transaction, 23);
+
+	logger.info (nano::log::type::lmdb, "Upgrading database from v22 to v23 completed");
+}
+
+void nano::store::lmdb::component::upgrade_v23_to_v24 (store::write_transaction & transaction)
+{
+	logger.info (nano::log::type::lmdb, "Upgrading database from v23 to v24...");
+
+	MDB_dbi frontiers_handle{ 0 };
+	release_assert (!mdb_dbi_open (env.tx (transaction), "frontiers", MDB_CREATE, &frontiers_handle));
+	release_assert (!mdb_drop (env.tx (transaction), frontiers_handle, 1)); // del = 1, to delete it from the environment and close the DB handle.
+	version.put (transaction, 24);
+	logger.info (nano::log::type::lmdb, "Upgrading database from v23 to v24 completed");
 }
 
 /** Takes a filepath, appends '_backup_<timestamp>' to the end (but before any extension) and saves that file in the same directory */
-void nano::store::lmdb::component::create_backup_file (nano::store::lmdb::env & env_a, std::filesystem::path const & filepath_a, nano::logger_mt & logger_a)
+void nano::store::lmdb::component::create_backup_file (nano::store::lmdb::env & env_a, std::filesystem::path const & filepath_a, nano::logger & logger)
 {
 	auto extension = filepath_a.extension ();
 	auto filename_without_extension = filepath_a.filename ().replace_extension ("");
@@ -242,22 +333,18 @@ void nano::store::lmdb::component::create_backup_file (nano::store::lmdb::env & 
 	backup_filename += std::to_string (std::chrono::system_clock::now ().time_since_epoch ().count ());
 	backup_filename += extension;
 	auto backup_filepath = backup_path / backup_filename;
-	auto start_message (boost::str (boost::format ("Performing %1% backup before database upgrade...") % filepath_a.filename ()));
-	logger_a.always_log (start_message);
-	std::cout << start_message << std::endl;
+
+	logger.info (nano::log::type::lmdb, "Performing {} backup before database upgrade...", filepath_a.filename ().string ());
+
 	auto error (mdb_env_copy (env_a, backup_filepath.string ().c_str ()));
 	if (error)
 	{
-		auto error_message (boost::str (boost::format ("%1% backup failed") % filepath_a.filename ()));
-		logger_a.always_log (error_message);
-		std::cerr << error_message << std::endl;
+		logger.critical (nano::log::type::lmdb, "Database backup failed");
 		std::exit (1);
 	}
 	else
 	{
-		auto success_message (boost::str (boost::format ("Backup created: %1%") % backup_filename));
-		logger_a.always_log (success_message);
-		std::cout << success_message << std::endl;
+		logger.info (nano::log::type::lmdb, "Database backup completed. Backup can be found at: {}", backup_filepath.string ());
 	}
 }
 
@@ -311,8 +398,6 @@ MDB_dbi nano::store::lmdb::component::table_to_dbi (tables table_a) const
 {
 	switch (table_a)
 	{
-		case tables::frontiers:
-			return frontier_store.frontiers_handle;
 		case tables::accounts:
 			return account_store.accounts_handle;
 		case tables::blocks:
@@ -331,6 +416,8 @@ MDB_dbi nano::store::lmdb::component::table_to_dbi (tables table_a) const
 			return confirmation_height_store.confirmation_height_handle;
 		case tables::final_votes:
 			return final_vote_store.final_votes_handle;
+		case tables::rep_weights:
+			return rep_weight_store.rep_weights_handle;
 		default:
 			release_assert (false);
 			return peer_store.peers_handle;

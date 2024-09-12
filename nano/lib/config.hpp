@@ -1,5 +1,7 @@
 #pragma once
 
+#include <nano/lib/tomlconfig.hpp>
+
 #include <boost/config.hpp>
 #include <boost/version.hpp>
 
@@ -26,55 +28,49 @@ char const * const NANO_PRE_RELEASE_VERSION_STRING = xstr (PRE_RELEASE_VERSION_S
 
 char const * const BUILD_INFO = xstr (GIT_COMMIT_HASH BOOST_COMPILER) " \"BOOST " xstr (BOOST_VERSION) "\" BUILT " xstr (__DATE__);
 
+/*
+ * Sanitizer info
+ */
+namespace nano
+{
+consteval bool is_asan_build ()
+{
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer)
-inline bool is_asan_build ()
-{
 	return true;
-}
 #else
-inline bool is_asan_build ()
-{
 	return false;
-}
 #endif
 // GCC builds
 #elif defined(__SANITIZE_ADDRESS__)
-inline bool is_asan_build ()
-{
 	return true;
-}
 #else
-inline bool is_asan_build ()
-{
 	return false;
-}
 #endif
+}
 
+consteval bool is_tsan_build ()
+{
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
-inline bool is_tsan_build ()
-{
 	return true;
-}
 #else
-inline bool is_tsan_build ()
-{
 	return false;
-}
 #endif
 // GCC builds
 #elif defined(__SANITIZE_THREAD__)
-inline bool is_tsan_build ()
-{
 	return true;
-}
 #else
-inline bool is_tsan_build ()
-{
 	return false;
-}
 #endif
+}
+
+/** Checks if we are running with either AddressSanitizer or ThreadSanitizer */
+consteval bool is_sanitizer_build ()
+{
+	return is_asan_build () || is_tsan_build ();
+}
+}
 
 namespace nano
 {
@@ -83,32 +79,12 @@ uint8_t get_minor_node_version ();
 uint8_t get_patch_node_version ();
 uint8_t get_pre_release_node_version ();
 
-/*
- * Environment variables
- */
-
-/*
- * Get environment variable as string or none if variable is not present
- */
-std::optional<std::string> get_env (char const * variable_name);
-/*
- * Get environment variable as string or `default_value` if variable is not present
- */
-std::string get_env_or_default (char const * variable_name, std::string const default_value);
-/*
- * Get environment variable as int or `default_value` if variable is not present
- */
-int get_env_int_or_default (char const * variable_name, int const default_value);
-uint64_t get_env_threshold_or_default (char const * variable_name, uint64_t const default_value);
-
 uint16_t test_node_port ();
 uint16_t test_rpc_port ();
 uint16_t test_ipc_port ();
 uint16_t test_websocket_port ();
 std::array<uint8_t, 2> test_magic_number ();
-/*
- * How often to scan for representatives in local wallet, in milliseconds
- */
+/// How often to scan for representatives in local wallet, in milliseconds
 uint32_t test_scan_wallet_reps_delay ();
 
 /**
@@ -126,6 +102,8 @@ enum class networks : uint16_t
 	// Normal work parameters, secret test genesis key, test IP ports
 	banano_test_network = 0x4243, // 'B', 'C'
 };
+
+std::string_view to_string (nano::networks);
 
 enum class work_version
 {
@@ -185,7 +163,6 @@ public:
 class network_constants
 {
 	static constexpr std::chrono::seconds default_cleanup_period = std::chrono::seconds (60);
-	static constexpr size_t default_max_peers_per_ip = 10;
 
 public:
 	network_constants (nano::work_thresholds & work_, nano::networks network_a) :
@@ -204,11 +181,10 @@ public:
 		silent_connection_tolerance_time (std::chrono::seconds (120)),
 		syn_cookie_cutoff (std::chrono::seconds (5)),
 		bootstrap_interval (std::chrono::seconds (15 * 60)),
-		max_peers_per_ip (default_max_peers_per_ip),
-		max_peers_per_subnetwork (default_max_peers_per_ip * 4),
 		ipv6_subnetwork_prefix_for_limiting (64), // Equivalent to network prefix /64.
 		peer_dump_interval (std::chrono::seconds (5 * 60)),
-		vote_broadcast_interval (15 * 1000)
+		vote_broadcast_interval (15 * 1000),
+		block_broadcast_interval (150 * 1000)
 	{
 		if (is_live_network ())
 		{
@@ -238,15 +214,16 @@ public:
 			merge_period = std::chrono::milliseconds (10);
 			keepalive_period = std::chrono::seconds (1);
 			idle_timeout = cleanup_period * 15;
-			max_peers_per_ip = 20;
-			max_peers_per_subnetwork = max_peers_per_ip * 4;
 			peer_dump_interval = std::chrono::seconds (1);
-			vote_broadcast_interval = 500;
+			vote_broadcast_interval = 500ms;
+			block_broadcast_interval = 500ms;
 			telemetry_request_cooldown = 500ms;
 			telemetry_cache_cutoff = 2000ms;
 			telemetry_request_interval = 500ms;
 			telemetry_broadcast_interval = 500ms;
 			optimistic_activation_delay = 2s;
+			rep_crawler_normal_interval = 500ms;
+			rep_crawler_warmup_interval = 500ms;
 		}
 	}
 
@@ -282,14 +259,12 @@ public:
 	std::chrono::seconds silent_connection_tolerance_time;
 	std::chrono::seconds syn_cookie_cutoff;
 	std::chrono::seconds bootstrap_interval;
-	/** Maximum number of peers per IP. It is also the max number of connections per IP */
-	size_t max_peers_per_ip;
-	/** Maximum number of peers per subnetwork */
-	size_t max_peers_per_subnetwork;
 	size_t ipv6_subnetwork_prefix_for_limiting;
 	std::chrono::seconds peer_dump_interval;
-	/** Time to wait before vote rebroadcasts for active elections (milliseconds) */
-	uint64_t vote_broadcast_interval;
+
+	/** Time to wait before rebroadcasts for active elections */
+	std::chrono::milliseconds vote_broadcast_interval;
+	std::chrono::milliseconds block_broadcast_interval;
 
 	/** We do not reply to telemetry requests made within cooldown period */
 	std::chrono::milliseconds telemetry_request_cooldown{ 1000 * 15 };
@@ -302,6 +277,9 @@ public:
 
 	/** How much to delay activation of optimistic elections to avoid interfering with election scheduler */
 	std::chrono::seconds optimistic_activation_delay{ 30 };
+
+	std::chrono::milliseconds rep_crawler_normal_interval{ 1000 * 7 };
+	std::chrono::milliseconds rep_crawler_warmup_interval{ 1000 * 3 };
 
 	/** Returns the network this object contains values for */
 	nano::networks network () const
@@ -378,12 +356,12 @@ public:
 	static nano::networks active_network;
 
 	/** Current protocol version */
-	uint8_t const protocol_version = 0x14;
+	uint8_t const protocol_version = 0x15;
 	/** Minimum accepted protocol version */
-	uint8_t const protocol_version_min = 0x12;
+	uint8_t const protocol_version_min = 0x14;
 
 	/** Minimum accepted protocol version used when bootstrapping */
-	uint8_t const bootstrap_protocol_version_min = 0x13;
+	uint8_t const bootstrap_protocol_version_min = 0x14;
 };
 
 std::string get_node_toml_config_path (std::filesystem::path const & data_path);
@@ -403,9 +381,30 @@ bool memory_intensive_instrumentation ();
 	Returns true if running within Valgrind or with ThreadSanitizer tooling*/
 bool slow_instrumentation ();
 
-/** Checks if we are running with either AddressSanitizer or ThreadSanitizer*/
-bool is_sanitizer_build ();
-
 /** Set the active network to the dev network */
 void force_nano_dev_network ();
+
+/**
+ * Attempt to read a configuration file from specified directory. Returns empty tomlconfig if nothing is found.
+ * @throws std::runtime_error with error code if the file or overrides are not valid toml
+ */
+nano::tomlconfig load_toml_file (const std::filesystem::path & config_filename, const std::filesystem::path & data_path, const std::vector<std::string> & config_overrides);
+
+/**
+ * Attempt to read a configuration file from specified directory. Returns fallback config if nothing is found.
+ * @throws std::runtime_error with error code if the file or overrides are not valid toml or deserialization fails
+ */
+template <typename T>
+T load_config_file (T fallback, const std::filesystem::path & config_filename, const std::filesystem::path & data_path, const std::vector<std::string> & config_overrides)
+{
+	auto toml = load_toml_file (config_filename, data_path, config_overrides);
+
+	T config = fallback;
+	auto error = config.deserialize_toml (toml);
+	if (error)
+	{
+		throw std::runtime_error (error.get_message ());
+	}
+	return config;
+}
 }

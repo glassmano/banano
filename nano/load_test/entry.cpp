@@ -4,6 +4,9 @@
 #include <nano/boost/beast/core/flat_buffer.hpp>
 #include <nano/boost/beast/http.hpp>
 #include <nano/boost/process/child.hpp>
+#include <nano/lib/blocks.hpp>
+#include <nano/lib/logging.hpp>
+#include <nano/lib/signal_manager.hpp>
 #include <nano/lib/thread_runner.hpp>
 #include <nano/lib/threading.hpp>
 #include <nano/lib/tomlconfig.hpp>
@@ -490,6 +493,7 @@ account_info account_info_rpc (boost::asio::io_context & ioc, tcp::resolver::res
 /** This launches a node and fires a lot of send/recieve RPC requests at it (configurable), then other nodes are tested to make sure they observe these blocks as well. */
 int main (int argc, char * const * argv)
 {
+	nano::logger::initialize_for_tests (nano::log_config::tests_default ());
 	nano::force_nano_dev_network ();
 
 	boost::program_options::options_description description ("Command line options");
@@ -589,15 +593,17 @@ int main (int argc, char * const * argv)
 	std::this_thread::sleep_for (std::chrono::seconds (7));
 	std::cout << "Connecting nodes..." << std::endl;
 
-	boost::asio::io_context ioc;
+	std::shared_ptr<boost::asio::io_context> ioc_shared = std::make_shared<boost::asio::io_context> ();
+	boost::asio::io_context & ioc{ *ioc_shared };
 
-	debug_assert (!nano::signal_handler_impl);
-	nano::signal_handler_impl = [&ioc] () {
+	nano::signal_manager sigman;
+
+	auto signal_handler = [&ioc] (int signum) {
 		ioc.stop ();
 	};
 
-	std::signal (SIGINT, &nano::signal_handler);
-	std::signal (SIGTERM, &nano::signal_handler);
+	sigman.register_signal_handler (SIGINT, signal_handler, true);
+	sigman.register_signal_handler (SIGTERM, signal_handler, false);
 
 	tcp::resolver resolver{ ioc };
 	auto const primary_node_results = resolver.resolve ("::1", std::to_string (rpc_port_start));
@@ -650,7 +656,7 @@ int main (int argc, char * const * argv)
 			}
 
 			// Send from genesis account to different accounts and receive the funds
-			auto send_receive = std::make_shared<send_receive_impl> (ioc, wallet, nano::dev::genesis->account ().to_account (), destination_account->as_string, send_calls_remaining, primary_node_results);
+			auto send_receive = std::make_shared<send_receive_impl> (ioc, wallet, nano::dev::genesis_key.pub.to_account (), destination_account->as_string, send_calls_remaining, primary_node_results);
 			boost::asio::strand<boost::asio::io_context::executor_type> strand{ ioc.get_executor () };
 			boost::asio::post (strand,
 			[send_receive] () {
@@ -712,7 +718,8 @@ int main (int argc, char * const * argv)
 		// Stop main node
 		stop_rpc (ioc, primary_node_results);
 	});
-	nano::thread_runner runner (ioc, simultaneous_process_calls);
+
+	nano::thread_runner runner (ioc_shared, nano::default_logger (), simultaneous_process_calls);
 	t.join ();
 	runner.join ();
 

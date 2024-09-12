@@ -1,12 +1,14 @@
 #pragma once
 
 #include <nano/lib/asio.hpp>
-#include <nano/lib/blocks.hpp>
+#include <nano/lib/block_uniquer.hpp>
 #include <nano/lib/config.hpp>
 #include <nano/lib/errors.hpp>
 #include <nano/lib/jsonconfig.hpp>
+#include <nano/lib/logging.hpp>
 #include <nano/lib/memory.hpp>
 #include <nano/lib/numbers.hpp>
+#include <nano/lib/object_stream.hpp>
 #include <nano/lib/stats_enums.hpp>
 #include <nano/lib/stream.hpp>
 #include <nano/node/common.hpp>
@@ -45,8 +47,9 @@ enum class message_type : uint8_t
 	asc_pull_ack = 0x0f,
 };
 
-std::string to_string (message_type);
-stat::detail to_stat_detail (message_type);
+std::string_view to_string (nano::message_type);
+stat::detail to_stat_detail (nano::message_type);
+log::detail to_log_detail (nano::message_type);
 
 enum class bulk_pull_account_flags : uint8_t
 {
@@ -57,6 +60,18 @@ enum class bulk_pull_account_flags : uint8_t
 
 class message_visitor;
 
+/*
+ * Common Header Binary Format:
+ * [2 bytes] Network (big endian)
+ * [1 byte] Maximum protocol version
+ * [1 byte] Protocol version currently in use
+ * [1 byte] Minimum protocol version
+ * [1 byte] Message type
+ * [2 bytes] Extensions (message-specific flags and properties)
+ *
+ * Notes:
+ * - The structure and bit usage of the `extensions` field vary by message type.
+ */
 class message_header final
 {
 public:
@@ -67,8 +82,6 @@ public:
 
 	void serialize (nano::stream &) const;
 	bool deserialize (nano::stream &);
-
-	std::string to_string () const;
 
 public: // Payload
 	nano::networks network;
@@ -113,6 +126,9 @@ public:
 	static extensions_bitset_t constexpr count_v2_mask_left{ 0xf000 };
 	static extensions_bitset_t constexpr count_v2_mask_right{ 0x00f0 };
 	static extensions_bitset_t constexpr telemetry_size_mask{ 0x3ff };
+
+public: // Logging
+	void operator() (nano::object_stream &) const;
 };
 
 class message
@@ -131,8 +147,19 @@ public:
 
 public:
 	nano::message_header header;
+
+public: // Logging
+	virtual void operator() (nano::object_stream &) const;
 };
 
+/*
+ * Binary Format:
+ * [message_header] Common message header
+ * [8x (16 bytes (IP) + 2 bytes (port)] Array of 8 peers
+ *
+ * Header extensions:
+ * - No specific bits from the `extensions` field are used for `keepalive`.
+ */
 class keepalive final : public message
 {
 public:
@@ -144,23 +171,56 @@ public:
 	bool operator== (nano::keepalive const &) const;
 	std::array<nano::endpoint, 8> peers;
 	static std::size_t constexpr size = 8 * (16 + 2);
-	std::string to_string () const;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
+/*
+ * Binary Format:
+ * [message_header] Common message header
+ * [variable] Block (serialized according to the block type specified in the header)
+ *
+ * Header extensions:
+ * - [0x0f00] Block type: Identifies the specific type of the block.
+ * - [0x0004] Originator flag
+ */
 class publish final : public message
 {
 public:
 	publish (bool &, nano::stream &, nano::message_header const &, nano::uint128_t const & = 0, nano::block_uniquer * = nullptr);
-	publish (nano::network_constants const & constants, std::shared_ptr<nano::block> const &);
-	void visit (nano::message_visitor &) const override;
+	publish (nano::network_constants const & constants, std::shared_ptr<nano::block> const &, bool is_originator = false);
+
 	void serialize (nano::stream &) const override;
 	bool deserialize (nano::stream &, nano::block_uniquer * = nullptr);
+	void visit (nano::message_visitor &) const override;
 	bool operator== (nano::publish const &) const;
+
+	static uint8_t constexpr originator_flag = 2; // 0x0004
+	bool is_originator () const;
+
+public: // Payload
 	std::shared_ptr<nano::block> block;
 	nano::uint128_t digest{ 0 };
-	std::string to_string () const;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
+/*
+ * Binary Format:
+ * [message_header] Common message header
+ * [N x (32 bytes (block hash) + 32 bytes (root))] Pairs of (block_hash, root)
+ * - The count is determined by the header's count bits.
+ *
+ * Header extensions:
+ * - [0xf000] Count (for V1 protocol)
+ * - [0x0f00] Block type
+ *   - Not used anymore (V25.1+), but still present and set to `not_a_block = 0x1` for backwards compatibility
+ * - [0xf000 (high), 0x00f0 (low)] Count V2 (for V2 protocol)
+ * - [0x0001] Confirm V2 flag
+ * - [0x0002] Reserved for V3+ versioning
+ */
 class confirm_req final : public message
 {
 public:
@@ -173,7 +233,6 @@ public:
 	void visit (nano::message_visitor &) const override;
 	bool operator== (nano::confirm_req const &) const;
 	std::string roots_string () const;
-	std::string to_string () const;
 
 	static std::size_t size (nano::message_header const &);
 
@@ -182,26 +241,49 @@ private:
 
 public: // Payload
 	std::vector<std::pair<nano::block_hash, nano::root>> roots_hashes;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
+/*
+ * Binary Format:
+ * [message_header] Common message header
+ * [variable] Vote
+ * - Serialized/deserialized by the `nano::vote` class.
+ *
+ * Header extensions:
+ * - [0xf000] Count (for V1 protocol)
+ * - [0x0f00] Block type
+ *   - Not used anymore (V25.1+), but still present and set to `not_a_block = 0x1` for backwards compatibility
+ * - [0xf000 (high), 0x00f0 (low)] Count V2 masks (for V2 protocol)
+ * - [0x0001] Confirm V2 flag
+ * - [0x0002] Reserved for V3+ versioning
+ * - [0x0004] Rebroadcasted flag
+ */
 class confirm_ack final : public message
 {
 public:
 	confirm_ack (bool & error, nano::stream &, nano::message_header const &, nano::vote_uniquer * = nullptr);
-	confirm_ack (nano::network_constants const & constants, std::shared_ptr<nano::vote> const &);
+	confirm_ack (nano::network_constants const & constants, std::shared_ptr<nano::vote> const &, bool rebroadcasted = false);
 
 	void serialize (nano::stream &) const override;
 	void visit (nano::message_visitor &) const override;
 	bool operator== (nano::confirm_ack const &) const;
-	std::string to_string () const;
 
 	static std::size_t size (nano::message_header const &);
+
+	static uint8_t constexpr rebroadcasted_flag = 2; // 0x0004
+	bool is_rebroadcasted () const;
 
 private:
 	static uint8_t hash_count (nano::message_header const &);
 
 public: // Payload
 	std::shared_ptr<nano::vote> vote;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 class frontier_req final : public message
@@ -217,7 +299,9 @@ public:
 	uint32_t age;
 	uint32_t count;
 	static std::size_t constexpr size = sizeof (start) + sizeof (age) + sizeof (count);
-	std::string to_string () const;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 enum class telemetry_maker : uint8_t
@@ -257,13 +341,16 @@ public:
 	bool validate_signature () const;
 	bool operator== (nano::telemetry_data const &) const;
 	bool operator!= (nano::telemetry_data const &) const;
-	std::string to_string () const;
 
 	// Size does not include unknown_data
 	static auto constexpr size = sizeof (signature) + sizeof (node_id) + sizeof (block_count) + sizeof (cemented_count) + sizeof (unchecked_count) + sizeof (account_count) + sizeof (bandwidth_cap) + sizeof (peer_count) + sizeof (protocol_version) + sizeof (uptime) + sizeof (genesis_block) + sizeof (major_version) + sizeof (minor_version) + sizeof (patch_version) + sizeof (pre_release_version) + sizeof (maker) + sizeof (uint64_t) + sizeof (active_difficulty);
 	static auto constexpr latest_size = size; // This needs to be updated for each new telemetry version
+
 private:
 	void serialize_without_signature (nano::stream &) const;
+
+public: // Logging
+	void operator() (nano::object_stream &) const;
 };
 
 class telemetry_req final : public message
@@ -274,7 +361,9 @@ public:
 	void serialize (nano::stream &) const override;
 	bool deserialize (nano::stream &);
 	void visit (nano::message_visitor &) const override;
-	std::string to_string () const;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 class telemetry_ack final : public message
@@ -288,9 +377,11 @@ public:
 	bool deserialize (nano::stream &);
 	uint16_t size () const;
 	bool is_empty_payload () const;
-	std::string to_string () const;
 	static uint16_t size (nano::message_header const &);
 	nano::telemetry_data data;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 class bulk_pull final : public message
@@ -310,7 +401,9 @@ public:
 	static std::size_t constexpr count_present_flag = nano::message_header::bulk_pull_count_present_flag;
 	static std::size_t constexpr extended_parameters_size = 8;
 	static std::size_t constexpr size = sizeof (start) + sizeof (end);
-	std::string to_string () const;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 class bulk_pull_account final : public message
@@ -325,7 +418,9 @@ public:
 	nano::amount minimum_amount;
 	bulk_pull_account_flags flags;
 	static std::size_t constexpr size = sizeof (account) + sizeof (minimum_amount) + sizeof (bulk_pull_account_flags);
-	std::string to_string () const;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 class bulk_push final : public message
@@ -336,6 +431,9 @@ public:
 	void serialize (nano::stream &) const override;
 	bool deserialize (nano::stream &);
 	void visit (nano::message_visitor &) const override;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 class node_id_handshake final : public message
@@ -351,6 +449,9 @@ public: // Payload definitions
 
 	public:
 		nano::uint256_union cookie;
+
+	public: // Logging
+		void operator() (nano::object_stream &) const;
 	};
 
 	class response_payload
@@ -381,6 +482,9 @@ public: // Payload definitions
 		static std::size_t constexpr size_v1 = sizeof (nano::account) + sizeof (nano::signature);
 		static std::size_t constexpr size_v2 = sizeof (nano::account) + sizeof (nano::signature) + sizeof (v2_payload);
 		static std::size_t size (nano::message_header const &);
+
+	public: // Logging
+		void operator() (nano::object_stream &) const;
 	};
 
 public:
@@ -393,7 +497,6 @@ public:
 	void visit (nano::message_visitor &) const override;
 	std::size_t size () const;
 	static std::size_t size (nano::message_header const &);
-	std::string to_string () const;
 
 public: // Header
 	static uint8_t constexpr query_flag = 0;
@@ -408,6 +511,9 @@ public: // Header
 public: // Payload
 	std::optional<query_payload> query;
 	std::optional<response_payload> response;
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 /**
@@ -430,6 +536,10 @@ struct empty_payload
 		debug_assert (false);
 	}
 	void deserialize (nano::stream &)
+	{
+		debug_assert (false);
+	}
+	void operator() (nano::object_stream &) const
 	{
 		debug_assert (false);
 	}
@@ -460,7 +570,6 @@ public:
 
 	void serialize_payload (nano::stream &) const;
 	void deserialize_payload (nano::stream &);
-	std::string to_string () const;
 
 private: // Debug
 	/**
@@ -480,10 +589,13 @@ public: // Payload definitions
 		void serialize (nano::stream &) const;
 		void deserialize (nano::stream &);
 
-		// Payload
+	public: // Payload
 		nano::hash_or_account start{ 0 };
 		uint8_t count{ 0 };
 		hash_type start_type{};
+
+	public: // Logging
+		void operator() (nano::object_stream &) const;
 	};
 
 	struct account_info_payload
@@ -491,9 +603,12 @@ public: // Payload definitions
 		void serialize (nano::stream &) const;
 		void deserialize (nano::stream &);
 
-		// Payload
+	public: // Payload
 		nano::hash_or_account target{ 0 };
 		hash_type target_type{};
+
+	public: // Logging
+		void operator() (nano::object_stream &) const;
 	};
 
 	struct frontiers_payload
@@ -501,9 +616,12 @@ public: // Payload definitions
 		void serialize (nano::stream &) const;
 		void deserialize (nano::stream &);
 
-		// Payload
+	public: // Payload
 		nano::account start{ 0 };
 		uint16_t count{ 0 };
+
+	public: // Logging
+		void operator() (nano::object_stream &) const;
 	};
 
 public: // Payload
@@ -516,6 +634,9 @@ public: // Payload
 public:
 	/** Size of message without payload */
 	constexpr static std::size_t partial_size = sizeof (type) + sizeof (id);
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 /**
@@ -543,7 +664,6 @@ public:
 
 	void serialize_payload (nano::stream &) const;
 	void deserialize_payload (nano::stream &);
-	std::string to_string () const;
 
 private: // Debug
 	/**
@@ -560,8 +680,11 @@ public: // Payload definitions
 		void serialize (nano::stream &) const;
 		void deserialize (nano::stream &);
 
-		// Payload
-		std::vector<std::shared_ptr<nano::block>> blocks;
+	public: // Payload
+		std::deque<std::shared_ptr<nano::block>> blocks;
+
+	public: // Logging
+		void operator() (nano::object_stream &) const;
 	};
 
 	struct account_info_payload
@@ -569,13 +692,16 @@ public: // Payload definitions
 		void serialize (nano::stream &) const;
 		void deserialize (nano::stream &);
 
-		// Payload
+	public: // Payload
 		nano::account account{ 0 };
 		nano::block_hash account_open{ 0 };
 		nano::block_hash account_head{ 0 };
 		uint64_t account_block_count{ 0 };
 		nano::block_hash account_conf_frontier{ 0 };
 		uint64_t account_conf_height{ 0 };
+
+	public: // Logging
+		void operator() (nano::object_stream &) const;
 	};
 
 	struct frontiers_payload
@@ -591,8 +717,11 @@ public: // Payload definitions
 		static void serialize_frontier (nano::stream &, frontier const &);
 		static frontier deserialize_frontier (nano::stream &);
 
-		// Payload
+	public: // Payload
 		std::vector<frontier> frontiers;
+
+	public: // Logging
+		void operator() (nano::object_stream &) const;
 	};
 
 public: // Payload
@@ -605,6 +734,9 @@ public: // Payload
 public:
 	/** Size of message without payload */
 	constexpr static std::size_t partial_size = sizeof (type) + sizeof (id);
+
+public: // Logging
+	void operator() (nano::object_stream &) const override;
 };
 
 class message_visitor
