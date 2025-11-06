@@ -217,7 +217,7 @@ int main (int argc, char * const * argv)
 				auto const bootstrap_weights = node->get_bootstrap_weights ();
 				auto const & hardcoded = bootstrap_weights.second;
 				auto const hardcoded_height = bootstrap_weights.first;
-				auto const ledger_unfiltered = node->ledger.cache.rep_weights.get_rep_amounts ();
+				auto const ledger_unfiltered = node->ledger.rep_weights.get_rep_amounts ();
 				auto const ledger_height = node->ledger.block_count ();
 
 				auto get_total = [] (decltype (bootstrap_weights.second) const & reps) -> nano::uint128_union {
@@ -459,7 +459,7 @@ int main (int argc, char * const * argv)
 			auto node = inactive_node.node;
 			auto transaction (node->store.tx_begin_read ());
 			nano::uint128_t total;
-			auto rep_amounts = node->ledger.cache.rep_weights.get_rep_amounts ();
+			auto rep_amounts = node->ledger.rep_weights.get_rep_amounts ();
 			std::map<nano::account, nano::uint128_t> ordered_reps (rep_amounts.begin (), rep_amounts.end ());
 			for (auto const & rep : ordered_reps)
 			{
@@ -1373,7 +1373,7 @@ int main (int argc, char * const * argv)
 
 			auto node_flags = nano::inactive_node_flag_defaults ();
 			nano::update_flags (node_flags, vm);
-			node_flags.generate_cache.enable_all ();
+			node_flags.generate_cache = nano::generate_cache_flags::all_enabled ();
 			nano::inactive_node inactive_node_l (data_path, node_flags);
 
 			nano::node_rpc_config config;

@@ -41,7 +41,7 @@ endif()
 
 set(CPACK_PACKAGE_VENDOR "Bananocoin")
 set(CPACK_PACKAGE_VERSION_MAJOR "28")
-set(CPACK_PACKAGE_VERSION_MINOR "1")
+set(CPACK_PACKAGE_VERSION_MINOR "2")
 set(CPACK_PACKAGE_VERSION_PATCH "0")
 
 if(CI_VERSION_PRE_RELEASE)
@@ -471,7 +471,7 @@ set(BOOST_MODULE_LIBS
     ratio
     rational
     regex
-    #scope
+    scope
     scope_exit
     serialization
     smart_ptr
@@ -728,7 +728,7 @@ add_custom_target(
   executables
   COMMAND echo "BATCH BUILDING node + rpc"
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-  DEPENDS banano_node banano_rpc)
+  DEPENDS bananode banano_rpc)
 
 if(NANO_FUZZER_TEST)
   if(NOT WIN32)
@@ -771,7 +771,7 @@ if(NANO_TEST OR RAIBLOCKS_TEST)
     all_tests
     COMMAND echo "BATCH BUILDING TESTS"
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    DEPENDS core_test load_test rpc_test slow_test banano_node banano_rpc)
+    DEPENDS core_test load_test rpc_test slow_test bananode banano_rpc)
 endif()
 
 if(NANO_TEST OR RAIBLOCKS_TEST)
@@ -875,9 +875,9 @@ if(NANO_GUI OR RAIBLOCKS_GUI)
     set(CPACK_GENERATOR "DragNDrop")
     configure_file(${CMAKE_SOURCE_DIR}/Info.plist.in
                    ${CMAKE_SOURCE_DIR}/Info.plist @ONLY)
-    install(TARGETS banano_wallet
+    install(TARGETS nano_wallet
             DESTINATION ${NANO_OSX_PACKAGE_NAME}.app/Contents/MacOS)
-    install(TARGETS banano_node
+    install(TARGETS bananode
             DESTINATION ${NANO_OSX_PACKAGE_NAME}.app/Contents/MacOS)
     install(TARGETS banano_rpc
             DESTINATION ${NANO_OSX_PACKAGE_NAME}.app/Contents/MacOS)

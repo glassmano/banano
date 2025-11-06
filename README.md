@@ -45,3 +45,4 @@ For more information, see [Banano.cc](https://banano.cc).
 ### Contact us
 You can reach us via the [Discord](https://chat.banano.cc) or our [Reddit](http://reddit.com/r/banano).
 You can also [file an issue](http://github.com/bananocoin/banano/issues).
+

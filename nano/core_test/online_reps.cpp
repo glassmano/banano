@@ -59,7 +59,7 @@ TEST (online_reps, election)
 				 .account (nano::dev::genesis_key.pub)
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis_key.pub)
-				 .balance (nano::dev::constants.genesis_amount - nano::Knano_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
 				 .link (key.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*node1.work_generate_blocking (nano::dev::genesis->hash ()))
@@ -70,7 +70,7 @@ TEST (online_reps, election)
 	auto vote = std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, nano::milliseconds_since_epoch (), 0, std::vector<nano::block_hash>{ send1->hash () });
 	ASSERT_EQ (0, node1.online_reps.online ());
 	node1.vote_processor.vote_blocking (vote, std::make_shared<nano::transport::fake::channel> (node1));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Knano_ratio, node1.online_reps.online ());
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, node1.online_reps.online ());
 }
 
 // Online reps should be able to observe remote representative
@@ -98,9 +98,9 @@ TEST (online_reps, observe_multiple)
 	auto & node_rep1 = *system.add_node (); // key1
 	auto & node_rep2 = *system.add_node (); // key2 & key3
 
-	auto const weight_1 = nano::nano_ratio * 1000;
-	auto const weight_2 = nano::nano_ratio * 1000000;
-	auto const weight_3 = nano::nano_ratio * 10000000;
+	auto const weight_1 = nano::BAN_ratio * 1000;
+	auto const weight_2 = nano::BAN_ratio * 1000000;
+	auto const weight_3 = nano::BAN_ratio * 10000000;
 
 	nano::keypair key1, key2, key3;
 
@@ -193,7 +193,7 @@ TEST (online_reps, observe_slow)
 	ASSERT_EQ (0, node.online_reps.online ());
 
 	// Enough to reach quorum by a single vote
-	auto const weight = nano::nano_ratio * 80000000;
+	auto const weight = nano::BAN_ratio * 80000000;
 
 	nano::keypair key1, key2; // Fast and slow reps
 
@@ -238,14 +238,14 @@ TEST (online_reps, observe_slow)
 	ASSERT_TRUE (nano::test::process (node, { send1, send2, open1, open2 }));
 	nano::test::confirm (node, { send1, send2, open1, open2 });
 
-	ASSERT_EQ (node.active.size (), 0);
+	ASSERT_TIMELY_EQ (5s, node.active.size (), 0);
 
 	// Add a block that we can vote on
 	auto send_dummy = builder.state ()
 					  .account (nano::dev::genesis_key.pub)
 					  .previous (send2->hash ())
 					  .representative (nano::dev::genesis_key.pub)
-					  .balance (nano::dev::constants.genesis_amount - weight * 2 - nano::nano_ratio)
+					  .balance (nano::dev::constants.genesis_amount - weight * 2 - nano::BAN_ratio)
 					  .link (nano::keypair{}.pub)
 					  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					  .work (*system.work.generate (send2->hash ()))
@@ -271,4 +271,71 @@ TEST (online_reps, observe_slow)
 
 	// The slow rep weight should still be counted as online, even though it arrived slightly after the election already reached quorum
 	ASSERT_TIMELY_EQ (5s, node.online_reps.online (), weight * 2);
+}
+
+// Test that online weight recalculates when existing representative weights change
+TEST (online_reps, weight_change_recalculation)
+{
+	nano::test::system system;
+	auto & node = *system.add_node ();
+	ASSERT_EQ (0, node.online_reps.online ());
+
+	nano::keypair key1, key2;
+	auto const initial_weight = nano::BAN_ratio * 1000;
+	auto const additional_weight = nano::BAN_ratio * 2000;
+
+	// Create initial distribution
+	nano::block_builder builder;
+	auto send1 = builder.state ()
+				 .account (nano::dev::genesis_key.pub)
+				 .previous (nano::dev::genesis->hash ())
+				 .representative (nano::dev::genesis_key.pub)
+				 .balance (nano::dev::constants.genesis_amount - initial_weight)
+				 .link (key1.pub)
+				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
+				 .work (*system.work.generate (nano::dev::genesis->hash ()))
+				 .build ();
+	auto open1 = builder.state ()
+				 .account (key1.pub)
+				 .previous (0)
+				 .representative (key1.pub)
+				 .balance (initial_weight)
+				 .link (send1->hash ())
+				 .sign (key1.prv, key1.pub)
+				 .work (*system.work.generate (key1.pub))
+				 .build ();
+	ASSERT_TRUE (nano::test::process (node, { send1, open1 }));
+
+	// Observe the representative - should register initial weight
+	node.online_reps.observe (key1.pub);
+	ASSERT_EQ (initial_weight, node.online_reps.online ());
+
+	// Create additional weight delegation to the same representative
+	auto send2 = builder.state ()
+				 .account (nano::dev::genesis_key.pub)
+				 .previous (send1->hash ())
+				 .representative (nano::dev::genesis_key.pub)
+				 .balance (nano::dev::constants.genesis_amount - initial_weight - additional_weight)
+				 .link (key2.pub)
+				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
+				 .work (*system.work.generate (send1->hash ()))
+				 .build ();
+	auto open2 = builder.state ()
+				 .account (key2.pub)
+				 .previous (0)
+				 .representative (key1.pub) // Delegate to key1
+				 .balance (additional_weight)
+				 .link (send2->hash ())
+				 .sign (key2.prv, key2.pub)
+				 .work (*system.work.generate (key2.pub))
+				 .build ();
+	ASSERT_TRUE (nano::test::process (node, { send2, open2 }));
+
+	// Observe the same representative again (simulating a vote from existing rep)
+	// This should trigger recalculation and pick up the new weight
+	node.online_reps.observe (key1.pub);
+
+	// The bug was that online weight would not recalculate for existing representatives
+	// With the fix, it should now reflect the updated weight
+	ASSERT_TIMELY_EQ (5s, node.online_reps.online (), initial_weight + additional_weight);
 }

@@ -1,52 +1,39 @@
 [submodule "miniupnp"]
 	path = submodules/miniupnp
 	url = https://github.com/miniupnp/miniupnp.git
-	ignore = dirty
 [submodule "lmdb"]
 	path = submodules/lmdb
 	url = https://github.com/LMDB/lmdb.git
-	ignore = dirty
 [submodule "cryptopp"]
 	path = submodules/cryptopp
 	url = https://github.com/weidai11/cryptopp.git
-	ignore = dirty
 [submodule "phc-winner-argon2"]
 	path = submodules/phc-winner-argon2
 	url = https://github.com/nanocurrency/phc-winner-argon2.git
-	ignore = dirty
 [submodule "gtest"]
 	path = submodules/gtest
 	url = https://github.com/google/googletest.git
-	ignore = dirty
 [submodule "cpptoml"]
 	path = submodules/cpptoml
 	url = https://github.com/cryptocode/cpptoml.git
-	ignore = dirty
 [submodule "flatbuffers"]
 	path = submodules/flatbuffers
 	url = https://github.com/google/flatbuffers.git
-	ignore = dirty
 [submodule "rocksdb"]
 	path = submodules/rocksdb
 	url = https://github.com/facebook/rocksdb.git
-	ignore = dirty
 [submodule "boost"]
 	path = submodules/boost
 	url = https://github.com/boostorg/boost.git
-	ignore = dirty
 [submodule "magic_enum"]
 	path = submodules/magic_enum
 	url = https://github.com/Neargye/magic_enum.git
-	ignore = dirty
 [submodule "submodules/gtest-parallel"]
 	path = submodules/gtest-parallel
 	url = https://github.com/google/gtest-parallel.git
-	ignore = dirty
 [submodule "submodules/spdlog"]
 	path = submodules/spdlog
 	url = https://github.com/gabime/spdlog.git
-	ignore = dirty
 [submodule "submodules/fmt"]
 	path = submodules/fmt
 	url = https://github.com/fmtlib/fmt.git
-	ignore = dirty

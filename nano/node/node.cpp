@@ -96,6 +96,14 @@ nano::node::node (std::shared_ptr<boost::asio::io_context> io_ctx_a, std::filesy
 	logger{ *logger_impl },
 	stats_impl{ std::make_unique<nano::stats> (logger, config.stats_config) },
 	stats{ *stats_impl },
+	store_impl{ nano::make_store (logger, application_path_a, network_params.ledger, flags.read_only, true, config_a) },
+	store{ *store_impl },
+	wallets_store_impl{ std::make_unique<nano::mdb_wallets_store> (application_path_a / "wallets.ldb", config_a.lmdb_config) },
+	wallets_store{ *wallets_store_impl },
+	wallets_impl{ std::make_unique<nano::wallets> (wallets_store.init_error (), *this) },
+	wallets{ *wallets_impl },
+	ledger_impl{ std::make_unique<nano::ledger> (store, network_params.ledger, stats, logger, flags_a.generate_cache, config.representative_vote_weight_minimum.number (), config.max_backlog) },
+	ledger{ *ledger_impl },
 	runner_impl{ std::make_unique<nano::thread_runner> (io_ctx_shared, logger, config.io_threads) },
 	runner{ *runner_impl },
 	observers_impl{ std::make_unique<nano::node_observers> () },
@@ -111,16 +119,8 @@ nano::node::node (std::shared_ptr<boost::asio::io_context> io_ctx_a, std::filesy
 	work{ work_a },
 	distributed_work_impl{ std::make_unique<nano::distributed_work_factory> (*this) },
 	distributed_work{ *distributed_work_impl },
-	store_impl{ nano::make_store (logger, application_path_a, network_params.ledger, flags.read_only, true, config_a) },
-	store{ *store_impl },
 	unchecked_impl{ std::make_unique<nano::unchecked_map> (config.max_unchecked_blocks, stats, flags.disable_block_processor_unchecked_deletion) },
 	unchecked{ *unchecked_impl },
-	wallets_store_impl{ std::make_unique<nano::mdb_wallets_store> (application_path_a / "wallets.ldb", config_a.lmdb_config) },
-	wallets_store{ *wallets_store_impl },
-	wallets_impl{ std::make_unique<nano::wallets> (wallets_store.init_error (), *this) },
-	wallets{ *wallets_impl },
-	ledger_impl{ std::make_unique<nano::ledger> (store, network_params.ledger, stats, logger, flags_a.generate_cache, config_a.representative_vote_weight_minimum.number ()) },
-	ledger{ *ledger_impl },
 	ledger_notifications_impl{ std::make_unique<nano::ledger_notifications> (config, stats, logger) },
 	ledger_notifications{ *ledger_notifications_impl },
 	outbound_limiter_impl{ std::make_unique<nano::bandwidth_limiter> (config) },
@@ -267,7 +267,7 @@ nano::node::node (std::shared_ptr<boost::asio::io_context> io_ctx_a, std::filesy
 	});
 
 	// Representative is defined as online if replying to live votes or rep crawler queries
-	observers.vote.add ([this] (std::shared_ptr<nano::vote> vote, std::shared_ptr<nano::transport::channel> const & channel, nano::vote_source source, nano::vote_code code) {
+	observers.vote.add ([this] (std::shared_ptr<nano::vote> const & vote, std::shared_ptr<nano::transport::channel> const & channel, nano::vote_source source, nano::vote_code code) {
 		release_assert (vote != nullptr);
 		release_assert (channel != nullptr);
 		debug_assert (code != nano::vote_code::invalid);
@@ -329,20 +329,6 @@ nano::node::node (std::shared_ptr<boost::asio::io_context> io_ctx_a, std::filesy
 		logger.info (nano::log::type::node, "Outbound bandwidth limit: {} bytes/s, burst ratio: {}",
 		config.bandwidth_limit,
 		config.bandwidth_limit_burst_ratio);
-
-		// First do a pass with a read to see if any writing needs doing, this saves needing to open a write lock (and potentially blocking)
-		auto is_initialized (false);
-		{
-			auto const transaction (store.tx_begin_read ());
-			is_initialized = (store.account.begin (transaction) != store.account.end (transaction));
-		}
-
-		if (!is_initialized && !flags.read_only)
-		{
-			auto const transaction = store.tx_begin_write ();
-			// Store was empty meaning we just created it, add the genesis block
-			store.initialize (transaction, ledger.cache, ledger.constants);
-		}
 
 		if (!block_or_pruned_exists (config.network_params.ledger.genesis->hash ()))
 		{

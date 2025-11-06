@@ -300,7 +300,7 @@ TEST (wallet, send)
 	auto account (nano::dev::genesis_key.pub);
 	auto wallet (std::make_shared<nano_qt::wallet> (*test_application, processor, *system.nodes[0], system.wallet (0), account));
 	wallet->start ();
-	ASSERT_NE (wallet->rendering_ratio, nano::raw_ratio);
+	ASSERT_NE (wallet->rendering_ratio, nano::RAW_ratio);
 	QTest::mouseClick (wallet->send_blocks, Qt::LeftButton);
 	QTest::keyClicks (wallet->send_account, key1.to_account ().c_str ());
 	QTest::keyClicks (wallet->send_count, "2.03");
@@ -524,7 +524,6 @@ TEST (history, short_text)
 	nano::ledger ledger (*store, nano::dev::constants, stats, logger);
 	{
 		auto transaction (ledger.tx_begin_write ());
-		store->initialize (transaction, ledger.cache, ledger.constants);
 		nano::keypair key;
 		auto latest (ledger.any.account_head (transaction, nano::dev::genesis_key.pub));
 		auto send = std::make_shared<nano::send_block> (latest, nano::dev::genesis_key.pub, 0, nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, *system.work.generate (latest));
@@ -566,7 +565,6 @@ TEST (history, pruned_source)
 	// Basic pruning for legacy blocks. Previous block is pruned, source is pruned
 	{
 		auto transaction = ledger.tx_begin_write ();
-		store->initialize (transaction, ledger.cache, nano::dev::constants);
 		auto latest (ledger.any.account_head (transaction, nano::dev::genesis_key.pub));
 		auto send1 = std::make_shared<nano::send_block> (latest, nano::dev::genesis_key.pub, nano::dev::constants.genesis_amount - 100, nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, *system.work.generate (latest));
 		ASSERT_EQ (nano::block_status::progress, ledger.process (transaction, send1));
@@ -581,8 +579,8 @@ TEST (history, pruned_source)
 		next_pruning = send2->hash ();
 	}
 	// Set rendering ration to raw units
-	ASSERT_NE (wallet->rendering_ratio, nano::raw_ratio);
-	wallet->rendering_ratio = nano::raw_ratio;
+	ASSERT_NE (wallet->rendering_ratio, nano::RAW_ratio);
+	wallet->rendering_ratio = nano::RAW_ratio;
 	// Genesis account pruned values
 	nano_qt::history history1 (ledger, nano::dev::genesis_key.pub, *wallet);
 	history1.refresh ();

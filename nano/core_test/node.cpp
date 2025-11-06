@@ -89,23 +89,10 @@ TEST (node, block_store_path_failure)
 	ASSERT_TRUE (node->wallets.items.empty ());
 }
 
-#if defined(__clang__) && defined(__linux__) && CI
-// Disable test due to instability with clang and actions
-TEST (node_DeathTest, DISABLED_readonly_block_store_not_exist)
-#else
 TEST (node_DeathTest, readonly_block_store_not_exist)
-#endif
 {
 	// This is a read-only node with no ledger file
-	if (nano::rocksdb_config::using_rocksdb_in_tests ())
-	{
-		nano::inactive_node node (nano::unique_path (), nano::inactive_node_flag_defaults ());
-		ASSERT_TRUE (node.node->init_error ());
-	}
-	else
-	{
-		ASSERT_EXIT (nano::inactive_node node (nano::unique_path (), nano::inactive_node_flag_defaults ()), ::testing::ExitedWithCode (1), "");
-	}
+	ASSERT_THROW (nano::inactive_node (nano::unique_path (), nano::inactive_node_flag_defaults ()), std::runtime_error);
 }
 
 TEST (node, password_fanout)
@@ -214,17 +201,23 @@ TEST (node, quick_confirm)
 	auto genesis_start_balance (node1.balance (nano::dev::genesis_key.pub));
 	system.wallet (0)->insert_adhoc (key.prv);
 	system.wallet (0)->insert_adhoc (nano::dev::genesis_key.prv);
+
+	// Wait for online weight to stabilize after wallet insertion
+	ASSERT_TIMELY (5s, node1.online_reps.online () >= genesis_start_balance);
+	auto delta = node1.online_reps.delta ();
+
 	auto send = nano::send_block_builder ()
 				.previous (previous)
 				.destination (key.pub)
-				.balance (node1.online_reps.delta () + 1)
+				.balance (delta + 1)
 				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				.work (*system.work.generate (previous))
 				.build ();
 	node1.process_active (send);
 	ASSERT_TIMELY (10s, !node1.balance (key.pub).is_zero ());
-	ASSERT_EQ (node1.balance (nano::dev::genesis_key.pub), node1.online_reps.delta () + 1);
-	ASSERT_EQ (node1.balance (key.pub), genesis_start_balance - (node1.online_reps.delta () + 1));
+
+	ASSERT_EQ (node1.balance (nano::dev::genesis_key.pub), delta + 1);
+	ASSERT_EQ (node1.balance (key.pub), genesis_start_balance - (delta + 1));
 }
 
 TEST (node, node_receive_quorum)
@@ -2585,9 +2578,8 @@ TEST (node, dont_write_lock_node)
 		nano::logger logger;
 		auto store = nano::make_store (logger, path, nano::dev::constants, false, true);
 		{
-			nano::ledger_cache ledger_cache{ store->rep_weight };
 			auto transaction (store->tx_begin_write ());
-			store->initialize (transaction, ledger_cache, nano::dev::constants);
+			store->initialize (transaction, nano::dev::constants);
 		}
 
 		// Hold write lock open until main thread is done needing it

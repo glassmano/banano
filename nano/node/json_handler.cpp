@@ -1,7 +1,7 @@
 #include <nano/lib/block_type.hpp>
-#include <nano/lib/convert.hpp>
 #include <nano/lib/blocks.hpp>
 #include <nano/lib/config.hpp>
+#include <nano/lib/convert.hpp>
 #include <nano/lib/json_error_response.hpp>
 #include <nano/lib/jsonconfig.hpp>
 #include <nano/lib/stats_sinks.hpp>
@@ -2194,7 +2194,7 @@ void nano::json_handler::confirmation_info ()
 					{
 						if (block->hash () == vote.hash)
 						{
-							auto amount (node.ledger.cache.rep_weights.representation_get (representative));
+							auto amount (node.ledger.weight (representative));
 							representatives.emplace (amount, representative);
 							if (vote.timestamp == std::numeric_limits<uint64_t>::max ())
 							{
@@ -2222,7 +2222,7 @@ void nano::json_handler::confirmation_info ()
 			response_l.put ("total_tally", total.convert_to<std::string> ());
 			response_l.put ("total_tally_decimal", convert_raw_to_dec (total.convert_to<std::string> ()));
 			response_l.put ("final_tally", info.status.final_tally.to_string_dec ());
-			//response_l.put ("final_tally_decimal", info.status.final_tally.to_string_dec ());
+			// response_l.put ("final_tally_decimal", info.status.final_tally.to_string_dec ());
 			response_l.add_child ("blocks", blocks);
 		}
 		else
@@ -3658,7 +3658,7 @@ void nano::json_handler::representatives ()
 	{
 		bool const sorting = request.get<bool> ("sorting", false);
 		boost::property_tree::ptree representatives;
-		auto rep_amounts = node.ledger.cache.rep_weights.get_rep_amounts ();
+		auto rep_amounts = node.ledger.rep_weights.get_rep_amounts ();
 		if (!sorting) // Simple
 		{
 			std::map<nano::account, nano::uint128_t> ordered (rep_amounts.begin (), rep_amounts.end ());
@@ -5414,7 +5414,7 @@ void nano::json_handler::representatives_decimal_millions ()
 	{
 		bool const sorting = request.get<bool> ("sorting", false);
 		boost::property_tree::ptree representatives;
-		auto rep_amounts = node.ledger.cache.rep_weights.get_rep_amounts ();
+		auto rep_amounts = node.ledger.rep_weights.get_rep_amounts ();
 		if (!sorting) // Simple
 		{
 			std::map<nano::account, nano::uint128_t> ordered (rep_amounts.begin (), rep_amounts.end ());
@@ -5454,43 +5454,43 @@ void nano::json_handler::representatives_decimal_millions ()
 
 void nano::json_handler::mnano_to_raw (nano::uint128_t ratio)
 {
-        auto amount (amount_impl ());
-        response_l.put ("deprecated", "1");
-        if (!ec)
-        {
-                auto result (amount.number () * ratio);
-                if (result > amount.number ())
-                {
-                        response_l.put ("amount", result.convert_to<std::string> ());
-                }
-                else
-                {
-                        ec = nano::error_common::invalid_amount_big;
-                }
-        }
-        response_errors ();
+	auto amount (amount_impl ());
+	response_l.put ("deprecated", "1");
+	if (!ec)
+	{
+		auto result (amount.number () * ratio);
+		if (result > amount.number ())
+		{
+			response_l.put ("amount", result.convert_to<std::string> ());
+		}
+		else
+		{
+			ec = nano::error_common::invalid_amount_big;
+		}
+	}
+	response_errors ();
 }
 
 void nano::json_handler::mnano_from_raw (nano::uint128_t ratio)
 {
-        auto amount (amount_impl ());
-        response_l.put ("deprecated", "1");
-        if (!ec)
-        {
-                auto result (amount.number () / ratio);
-                response_l.put ("amount", result.convert_to<std::string> ());
-        }
-        response_errors ();
+	auto amount (amount_impl ());
+	response_l.put ("deprecated", "1");
+	if (!ec)
+	{
+		auto result (amount.number () / ratio);
+		response_l.put ("amount", result.convert_to<std::string> ());
+	}
+	response_errors ();
 }
 
 void nano::json_handler::raw_to_dec ()
 {
-        auto amount (amount_impl ());
-        if (!ec)
-        {
-                response_l.put ("amount_decimal", convert_raw_to_dec (amount.number ().convert_to<std::string> ()));
-        }
-        response_errors ();
+	auto amount (amount_impl ());
+	if (!ec)
+	{
+		response_l.put ("amount_decimal", convert_raw_to_dec (amount.number ().convert_to<std::string> ()));
+	}
+	response_errors ();
 }
 
 namespace

@@ -1811,7 +1811,7 @@ TEST (rpc, version)
 		ASSERT_EQ (std::to_string (node1->store.version.get (transaction)), response1.json.get<std::string> ("store_version"));
 	}
 	ASSERT_EQ (std::to_string (node1->network_params.network.protocol_version), response1.json.get<std::string> ("protocol_version"));
-	ASSERT_EQ (boost::str (boost::format ("Nano %1%") % NANO_VERSION_STRING), response1.json.get<std::string> ("node_vendor"));
+	ASSERT_EQ (boost::str (boost::format ("Banano %1%") % NANO_VERSION_STRING), response1.json.get<std::string> ("node_vendor"));
 	ASSERT_EQ (node1->store.vendor_get (), response1.json.get<std::string> ("store_vendor"));
 	auto network_label (node1->network_params.network.get_current_network_as_string ());
 	ASSERT_EQ (network_label, response1.json.get<std::string> ("network"));
@@ -2852,7 +2852,7 @@ TEST (rpc, accounts_balances)
 
 	// Adds a valid account string that isn't on the ledger for getting an error response.
 	boost::property_tree::ptree entry2;
-	auto const account_not_found = "nano_1os6txqxyuesnxrtshnfb5or1hesc1647wpk9rsr84pmki6eairwha79hk3j";
+	auto const account_not_found = "bano_1os6txqxyuesnxrtshnfb5or1hesc1647wpk9rsr84pmki6eairwha79hk3j";
 	entry2.put ("", account_not_found);
 	accounts_l.push_back (std::make_pair ("", entry2));
 
@@ -3020,12 +3020,12 @@ TEST (rpc, accounts_representatives_with_errors)
 
 	// Adds an invalid account, malformed number with a wrong checksum.
 	// Got with this formula: key1.substr(0, 40) + key2.substr(40, key2.size()).
-	auto const bad_account_number = "nano_36uccgpjzhjsdbj44wm1y5hyz8gefx3wjpp1jircxt84nopxkxti5bzq1rnz";
+	auto const bad_account_number = "ban_36uccgpjzhjsdbj44wm1y5hyz8gefx3wjpp1jircxt84nopxkxti5bzq1rnz";
 	entry2.put ("", bad_account_number);
 	accounts_l.push_back (std::make_pair ("", entry2));
 
 	// Adds a valid key but that isn't on the ledger. It won't be found.
-	auto const account_not_found = "nano_1hrts7hcoozxccnffoq9hqhngnn9jz783usapejm57ejtqcyz9dpso1bibuy";
+	auto const account_not_found = "ban_1hrts7hcoozxccnffoq9hqhngnn9jz783usapejm57ejtqcyz9dpso1bibuy";
 	entry3.put ("", account_not_found);
 	accounts_l.push_back (std::make_pair ("", entry3));
 

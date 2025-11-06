@@ -131,7 +131,8 @@ add_library(
 include_directories(${CMAKE_SOURCE_DIR}/submodules)
 include_directories(
   ${CMAKE_SOURCE_DIR}/submodules/nano-pow-server/deps/cpptoml/include)
-include_directories(${CMAKE_SOURCE_DIR}/submodules/magic_enum/include/magic_enum)
+include_directories(
+  ${CMAKE_SOURCE_DIR}/submodules/magic_enum/include/magic_enum)
 include_directories(${CMAKE_SOURCE_DIR}/submodules/magic_enum/include)
 
 target_link_libraries(

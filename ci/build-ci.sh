@@ -30,7 +30,7 @@ ulimit -S -n 8192
 
 cmake \
 -G'Unix Makefiles' \
--DACTIVE_NETWORK=nano_dev_network \
+-DACTIVE_NETWORK=banano_dev_network \
 -DNANO_TEST=ON \
 -DNANO_GUI=ON \
 -DPORTABLE=1 \
