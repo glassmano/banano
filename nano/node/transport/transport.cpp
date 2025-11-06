@@ -1,11 +1,10 @@
-#include <nano/node/common.hpp>
+#include <nano/node/endpoint.hpp>
 #include <nano/node/node.hpp>
 #include <nano/node/transport/transport.hpp>
 
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/address_v4.hpp>
 #include <boost/asio/ip/address_v6.hpp>
-#include <boost/format.hpp>
 
 nano::endpoint nano::transport::map_endpoint_to_v6 (nano::endpoint const & endpoint_a)
 {
@@ -19,27 +18,38 @@ nano::endpoint nano::transport::map_endpoint_to_v6 (nano::endpoint const & endpo
 
 nano::endpoint nano::transport::map_tcp_to_endpoint (nano::tcp_endpoint const & endpoint_a)
 {
-	return nano::endpoint (endpoint_a.address (), endpoint_a.port ());
+	return { endpoint_a.address (), endpoint_a.port () };
 }
 
 nano::tcp_endpoint nano::transport::map_endpoint_to_tcp (nano::endpoint const & endpoint_a)
 {
-	return nano::tcp_endpoint (endpoint_a.address (), endpoint_a.port ());
+	return { endpoint_a.address (), endpoint_a.port () };
 }
 
-boost::asio::ip::address nano::transport::map_address_to_subnetwork (boost::asio::ip::address const & address_a)
+boost::asio::ip::address nano::transport::map_address_to_subnetwork (boost::asio::ip::address address_a)
 {
-	debug_assert (address_a.is_v6 ());
+	address_a = mapped_from_v4_or_v6 (address_a);
 	static short const ipv6_subnet_prefix_length = 32; // Equivalent to network prefix /32.
-	static short const ipv4_subnet_prefix_length = (128 - 32) + 24; // Limits for /24 IPv4 subnetwork
+	static short const ipv4_subnet_prefix_length = (128 - 32) + 24; // Limits for /24 IPv4 subnetwork (we're using mapped IPv4 to IPv6 addresses, hence (128 - 32))
 	return address_a.to_v6 ().is_v4_mapped () ? boost::asio::ip::make_network_v6 (address_a.to_v6 (), ipv4_subnet_prefix_length).network () : boost::asio::ip::make_network_v6 (address_a.to_v6 (), ipv6_subnet_prefix_length).network ();
 }
 
-boost::asio::ip::address nano::transport::ipv4_address_or_ipv6_subnet (boost::asio::ip::address const & address_a)
+boost::asio::ip::address nano::transport::ipv4_address_or_ipv6_subnet (boost::asio::ip::address address_a)
 {
-	debug_assert (address_a.is_v6 ());
+	address_a = mapped_from_v4_or_v6 (address_a);
+	// Assuming /48 subnet prefix for IPv6 as it's relatively easy to acquire such a /48 address range
 	static short const ipv6_address_prefix_length = 48; // /48 IPv6 subnetwork
 	return address_a.to_v6 ().is_v4_mapped () ? address_a : boost::asio::ip::make_network_v6 (address_a.to_v6 (), ipv6_address_prefix_length).network ();
+}
+
+bool nano::transport::is_same_ip (boost::asio::ip::address const & address_a, boost::asio::ip::address const & address_b)
+{
+	return ipv4_address_or_ipv6_subnet (address_a) == ipv4_address_or_ipv6_subnet (address_b);
+}
+
+bool nano::transport::is_same_subnetwork (boost::asio::ip::address const & address_a, boost::asio::ip::address const & address_b)
+{
+	return map_address_to_subnetwork (address_a) == map_address_to_subnetwork (address_b);
 }
 
 boost::asio::ip::address_v6 nano::transport::mapped_from_v4_bytes (unsigned long address_a)
@@ -154,4 +164,62 @@ bool nano::transport::reserved_address (nano::endpoint const & endpoint_a, bool 
 		}
 	}
 	return result;
+}
+
+nano::stat::detail nano::to_stat_detail (boost::system::error_code const & ec)
+{
+	switch (ec.value ())
+	{
+		case boost::system::errc::success:
+			return nano::stat::detail::success;
+		case boost::system::errc::no_buffer_space:
+			return nano::stat::detail::no_buffer_space;
+		case boost::system::errc::timed_out:
+			return nano::stat::detail::timed_out;
+		case boost::system::errc::host_unreachable:
+			return nano::stat::detail::host_unreachable;
+		case boost::system::errc::not_supported:
+			return nano::stat::detail::not_supported;
+		default:
+			return nano::stat::detail::other;
+	}
+}
+
+/*
+ * socket_functions
+ */
+
+boost::asio::ip::network_v6 nano::transport::socket_functions::get_ipv6_subnet_address (boost::asio::ip::address_v6 const & ip_address, std::size_t network_prefix)
+{
+	return boost::asio::ip::make_network_v6 (ip_address, static_cast<unsigned short> (network_prefix));
+}
+
+boost::asio::ip::address nano::transport::socket_functions::first_ipv6_subnet_address (boost::asio::ip::address_v6 const & ip_address, std::size_t network_prefix)
+{
+	auto range = get_ipv6_subnet_address (ip_address, network_prefix).hosts ();
+	debug_assert (!range.empty ());
+	return *(range.begin ());
+}
+
+boost::asio::ip::address nano::transport::socket_functions::last_ipv6_subnet_address (boost::asio::ip::address_v6 const & ip_address, std::size_t network_prefix)
+{
+	auto range = get_ipv6_subnet_address (ip_address, network_prefix).hosts ();
+	debug_assert (!range.empty ());
+	return *(--range.end ());
+}
+
+std::size_t nano::transport::socket_functions::count_subnetwork_connections (
+nano::transport::address_socket_mmap const & per_address_connections,
+boost::asio::ip::address_v6 const & remote_address,
+std::size_t network_prefix)
+{
+	auto range = get_ipv6_subnet_address (remote_address, network_prefix).hosts ();
+	if (range.empty ())
+	{
+		return 0;
+	}
+	auto const first_ip = first_ipv6_subnet_address (remote_address, network_prefix);
+	auto const last_ip = last_ipv6_subnet_address (remote_address, network_prefix);
+	auto const counted_connections = std::distance (per_address_connections.lower_bound (first_ip), per_address_connections.upper_bound (last_ip));
+	return counted_connections;
 }

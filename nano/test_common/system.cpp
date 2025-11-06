@@ -1,8 +1,17 @@
 #include <nano/crypto_lib/random_pool.hpp>
-#include <nano/node/common.hpp>
+#include <nano/lib/blocks.hpp>
+#include <nano/lib/thread_runner.hpp>
+#include <nano/lib/work_version.hpp>
+#include <nano/node/active_elections.hpp>
+#include <nano/node/endpoint.hpp>
+#include <nano/node/transport/tcp_listener.hpp>
+#include <nano/secure/ledger.hpp>
+#include <nano/secure/ledger_set_any.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
 
+#include <boost/asio.hpp>
+#include <boost/format.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
 #include <cstdlib>
@@ -22,116 +31,20 @@ std::string nano::error_system_messages::message (int ev) const
 	return "Invalid error code";
 }
 
-nano::node & nano::test::system::node (std::size_t index) const
-{
-	debug_assert (index < nodes.size ());
-	return *nodes[index];
-}
+/*
+ * system
+ */
 
-std::shared_ptr<nano::node> nano::test::system::add_node (nano::node_flags node_flags_a, nano::transport::transport_type type_a)
-{
-	return add_node (default_config (), node_flags_a, type_a);
-}
-
-/** Returns the node added. */
-std::shared_ptr<nano::node> nano::test::system::add_node (nano::node_config const & node_config_a, nano::node_flags node_flags_a, nano::transport::transport_type type_a, std::optional<nano::keypair> const & rep)
-{
-	auto node (std::make_shared<nano::node> (io_ctx, nano::unique_path (), node_config_a, work, node_flags_a, node_sequence++));
-	for (auto i : initialization_blocks)
-	{
-		auto result = node->ledger.process (node->store.tx_begin_write (), *i);
-		debug_assert (result.code == nano::process_result::progress);
-	}
-	debug_assert (!node->init_error ());
-	auto wallet = node->wallets.create (nano::random_wallet_id ());
-	if (rep)
-	{
-		wallet->insert_adhoc (rep->prv);
-	}
-	node->start ();
-	nodes.reserve (nodes.size () + 1);
-	nodes.push_back (node);
-	if (nodes.size () > 1)
-	{
-		debug_assert (nodes.size () - 1 <= node->network_params.network.max_peers_per_ip || node->flags.disable_max_peers_per_ip); // Check that we don't start more nodes than limit for single IP address
-		auto begin = nodes.end () - 2;
-		for (auto i (begin), j (begin + 1), n (nodes.end ()); j != n; ++i, ++j)
-		{
-			auto node1 (*i);
-			auto node2 (*j);
-
-			auto starting_size_1 = node1->network.size ();
-			auto starting_size_2 = node2->network.size ();
-
-			auto starting_realtime_1 = node1->tcp_listener.realtime_count.load ();
-			auto starting_realtime_2 = node2->tcp_listener.realtime_count.load ();
-
-			auto starting_keepalives_1 = node1->stats.count (stat::type::message, stat::detail::keepalive, stat::dir::in);
-			auto starting_keepalives_2 = node2->stats.count (stat::type::message, stat::detail::keepalive, stat::dir::in);
-
-			// TCP is the only transport layer available.
-			debug_assert (type_a == nano::transport::transport_type::tcp);
-			(*j)->network.merge_peer ((*i)->network.endpoint ());
-
-			{
-				auto ec = poll_until_true (3s, [&node1, &node2, starting_size_1, starting_size_2] () {
-					auto size_1 = node1->network.size ();
-					auto size_2 = node2->network.size ();
-					return size_1 > starting_size_1 && size_2 > starting_size_2;
-				});
-				debug_assert (!ec);
-			}
-
-			if (type_a == nano::transport::transport_type::tcp && node_config_a.tcp_incoming_connections_max != 0 && !node_flags_a.disable_tcp_realtime)
-			{
-				{
-					// Wait for initial connection finish
-					auto ec = poll_until_true (3s, [&node1, &node2, starting_realtime_1, starting_realtime_2] () {
-						auto realtime_1 = node1->tcp_listener.realtime_count.load ();
-						auto realtime_2 = node2->tcp_listener.realtime_count.load ();
-						return realtime_1 > starting_realtime_1 && realtime_2 > starting_realtime_2;
-					});
-					debug_assert (!ec);
-				}
-				{
-					// Wait for keepalive message exchange
-					auto ec = poll_until_true (3s, [&node1, &node2, starting_keepalives_1, starting_keepalives_2] () {
-						auto keepalives_1 = node1->stats.count (stat::type::message, stat::detail::keepalive, stat::dir::in);
-						auto keepalives_2 = node2->stats.count (stat::type::message, stat::detail::keepalive, stat::dir::in);
-						return keepalives_1 > starting_keepalives_1 && keepalives_2 > starting_keepalives_2;
-					});
-					debug_assert (!ec);
-				}
-			}
-		}
-
-		{
-			// Ensure no bootstrap initiators are in progress
-			auto ec = poll_until_true (3s, [this, &begin] () {
-				return std::all_of (begin, nodes.end (), [] (std::shared_ptr<nano::node> const & node_a) { return !node_a->bootstrap_initiator.in_progress (); });
-			});
-			debug_assert (!ec);
-		}
-	}
-	else
-	{
-		auto ec = poll_until_true (3s, [&node] () {
-			return !node->bootstrap_initiator.in_progress ();
-		});
-		debug_assert (!ec);
-	}
-
-	return node;
-}
-
-nano::test::system::system ()
+nano::test::system::system () :
+	io_ctx{ std::make_shared<boost::asio::io_context> () },
+	io_guard{ boost::asio::make_work_guard (*io_ctx) },
+	stats{ logger }
 {
 	auto scale_str = std::getenv ("DEADLINE_SCALE_FACTOR");
 	if (scale_str)
 	{
 		deadline_scaling_factor = std::stod (scale_str);
 	}
-	logging.init (nano::unique_path ());
 }
 
 nano::test::system::system (uint16_t count_a, nano::transport::transport_type type_a, nano::node_flags flags_a) :
@@ -163,7 +76,147 @@ nano::test::system::~system ()
 #endif
 }
 
-void nano::test::system::ledger_initialization_set (std::vector<nano::keypair> const & reps, nano::amount const & reserve)
+void nano::test::system::stop ()
+{
+	logger.debug (nano::log::type::system, "Stopping...");
+
+	// Keep io_context running while stopping nodes
+	for (auto & node : nodes)
+	{
+		stop_node (*node);
+	}
+	for (auto & node : disconnected_nodes)
+	{
+		stop_node (*node);
+	}
+
+	stats.stop ();
+	io_guard.reset ();
+	work.stop ();
+}
+
+void nano::test::system::set_initialization_blocks (std::deque<std::shared_ptr<nano::block>> blocks)
+{
+	this->initialization_blocks = std::move (blocks);
+}
+
+void nano::test::system::set_cemented_initialization_blocks (std::deque<std::shared_ptr<nano::block>> blocks)
+{
+	this->initialization_blocks_cemented = std::move (blocks);
+}
+
+nano::node & nano::test::system::node (std::size_t index) const
+{
+	debug_assert (index < nodes.size ());
+	return *nodes[index];
+}
+
+std::shared_ptr<nano::node> nano::test::system::add_node (nano::node_flags node_flags_a, nano::transport::transport_type type_a)
+{
+	return add_node (default_config (), node_flags_a, type_a);
+}
+
+/** Returns the node added. */
+std::shared_ptr<nano::node> nano::test::system::add_node (nano::node_config const & node_config_a, nano::node_flags node_flags_a, nano::transport::transport_type type_a, std::optional<nano::keypair> const & rep)
+{
+	auto node (std::make_shared<nano::node> (io_ctx, nano::unique_path (), node_config_a, work, node_flags_a, node_sequence++));
+	debug_assert (!node->init_error ());
+	setup_node (*node);
+	auto wallet = node->wallets.create (nano::random_wallet_id ());
+	if (rep)
+	{
+		wallet->insert_adhoc (rep->prv);
+	}
+	node->start ();
+
+	// Check that we don't start more nodes than limit for single IP address
+	debug_assert (nodes.size () < node->config.network.max_peers_per_ip || node->flags.disable_max_peers_per_ip);
+
+	// Connect with other nodes
+	for (auto const & other_node : nodes)
+	{
+		if (other_node->stopped)
+		{
+			continue;
+		}
+
+		logger.debug (nano::log::type::system, "Connecting nodes: {} and {}", node->identifier (), other_node->identifier ());
+
+		// TCP is the only transport layer available.
+		debug_assert (type_a == nano::transport::transport_type::tcp);
+		node->network.merge_peer (other_node->network.endpoint ());
+
+		auto ec = poll_until_true (5s, [&] () {
+			bool result_1 = node->network.find_node_id (other_node->node_id.pub) != nullptr;
+			bool result_2 = other_node->network.find_node_id (node->node_id.pub) != nullptr;
+			return result_1 && result_2;
+		});
+		debug_assert (!ec);
+	}
+
+	logger.debug (nano::log::type::system, "Node started: {}", node->get_node_id ().to_node_id ());
+
+	nodes.push_back (node);
+	return node;
+}
+
+// TODO: Merge with add_node
+std::shared_ptr<nano::node> nano::test::system::make_disconnected_node (std::optional<nano::node_config> opt_node_config, nano::node_flags flags)
+{
+	nano::node_config node_config = opt_node_config.has_value () ? *opt_node_config : default_config ();
+	auto node = std::make_shared<nano::node> (io_ctx, nano::unique_path (), node_config, work, flags);
+	debug_assert (!node->init_error ());
+	setup_node (*node);
+	node->start ();
+
+	logger.debug (nano::log::type::system, "Node started (disconnected): {}", node->get_node_id ().to_node_id ());
+
+	disconnected_nodes.push_back (node);
+	return node;
+}
+
+void nano::test::system::setup_node (nano::node & node)
+{
+	auto transaction = node.ledger.tx_begin_write ();
+
+	for (auto block : initialization_blocks)
+	{
+		auto result = node.ledger.process (transaction, block);
+		debug_assert (result == nano::block_status::progress);
+	}
+
+	for (auto block : initialization_blocks_cemented)
+	{
+		auto result = node.ledger.process (transaction, block);
+		debug_assert (result == nano::block_status::progress);
+
+		auto cemented = node.ledger.confirm (transaction, block->hash ());
+		debug_assert (std::find_if (cemented.begin (), cemented.end (), [&block] (auto const & cemented_block) {
+			return cemented_block->hash () == block->hash ();
+		})
+		!= cemented.end ());
+	}
+}
+
+void nano::test::system::register_node (std::shared_ptr<nano::node> const & node)
+{
+	debug_assert (std::find (nodes.begin (), nodes.end (), node) == nodes.end ());
+	nodes.push_back (node);
+}
+
+void nano::test::system::stop_node (nano::node & node)
+{
+	auto stopped = std::async (std::launch::async, [&node] () {
+		node.stop ();
+	});
+	auto ec = poll_until_true (5s, [&] () {
+		auto status = stopped.wait_for (0s);
+		return status == std::future_status::ready;
+	});
+	debug_assert (!ec);
+}
+
+void nano::test::system::ledger_initialization_set (std::deque<nano::keypair> const & reps, nano::amount const & reserve)
 {
 	nano::block_hash previous = nano::dev::genesis->hash ();
 	auto amount = (nano::dev::constants.genesis_amount - reserve.number ()) / reps.size ();
@@ -179,7 +232,7 @@ void nano::test::system::ledger_initialization_set (std::vector<nano::keypair> c
 		.balance (balance)
 		.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 		.work (*work.generate (previous));
-		initialization_blocks.emplace_back (builder.build_shared ());
+		initialization_blocks.emplace_back (builder.build ());
 		previous = initialization_blocks.back ()->hash ();
 		builder.make_block ();
 		builder.account (i.pub)
@@ -189,7 +242,7 @@ void nano::test::system::ledger_initialization_set (std::vector<nano::keypair> c
 		.balance (amount)
 		.sign (i.prv, i.pub)
 		.work (*work.generate (i.pub));
-		initialization_blocks.emplace_back (builder.build_shared ());
+		initialization_blocks.emplace_back (builder.build ());
 	}
 }
 
@@ -202,13 +255,13 @@ std::shared_ptr<nano::wallet> nano::test::system::wallet (size_t index_a)
 	return nodes[index_a]->wallets.items.begin ()->second;
 }
 
-nano::account nano::test::system::account (nano::transaction const & transaction_a, size_t index_a)
+nano::account nano::test::system::account (store::transaction const & transaction_a, size_t index_a)
 {
 	auto wallet_l (wallet (index_a));
 	auto keys (wallet_l->store.begin (transaction_a));
-	debug_assert (keys != wallet_l->store.end ());
+	debug_assert (keys != wallet_l->store.end (transaction_a));
 	auto result (keys->first);
-	debug_assert (++keys == wallet_l->store.end ());
+	debug_assert (++keys == wallet_l->store.end (transaction_a));
 	return nano::account (result);
 }
 
@@ -226,13 +279,13 @@ uint64_t nano::test::system::work_generate_limited (nano::block_hash const & roo
 /** Initiate an epoch upgrade. Writes the epoch block into the ledger and leaves it to
  *  node background processes (e.g. frontiers confirmation) to cement the block.
  */
-std::unique_ptr<nano::state_block> nano::test::upgrade_epoch (nano::work_pool & pool_a, nano::ledger & ledger_a, nano::epoch epoch_a)
+std::shared_ptr<nano::state_block> nano::test::upgrade_epoch (nano::work_pool & pool_a, nano::ledger & ledger_a, nano::epoch epoch_a)
 {
-	auto transaction (ledger_a.store.tx_begin_write ());
+	auto transaction = ledger_a.tx_begin_write ();
 	auto dev_genesis_key = nano::dev::genesis_key;
 	auto account = dev_genesis_key.pub;
-	auto latest = ledger_a.latest (transaction, account);
-	auto balance = ledger_a.account_balance (transaction, account);
+	auto latest = ledger_a.any.account_head (transaction, account);
+	auto balance = ledger_a.any.account_balance (transaction, account).value_or (0);
 
 	nano::state_block_builder builder;
 	std::error_code ec;
@@ -249,13 +302,13 @@ std::unique_ptr<nano::state_block> nano::test::upgrade_epoch (nano::work_pool & 
 	bool error{ true };
 	if (!ec && epoch)
 	{
-		error = ledger_a.process (transaction, *epoch).code != nano::process_result::progress;
+		error = ledger_a.process (transaction, epoch) != nano::block_status::progress;
 	}
 
 	return !error ? std::move (epoch) : nullptr;
 }
 
-std::unique_ptr<nano::state_block> nano::test::system::upgrade_genesis_epoch (nano::node & node_a, nano::epoch const epoch_a)
+std::shared_ptr<nano::state_block> nano::test::system::upgrade_genesis_epoch (nano::node & node_a, nano::epoch const epoch_a)
 {
 	return upgrade_epoch (work, node_a.ledger, epoch_a);
 }
@@ -267,22 +320,24 @@ void nano::test::system::deadline_set (std::chrono::duration<double, std::nano> 
 
 std::error_code nano::test::system::poll (std::chrono::nanoseconds const & wait_time)
 {
-#if NANO_ASIO_HANDLER_TRACKING == 0
-	io_ctx.run_one_for (wait_time);
-#else
-	nano::timer<> timer;
-	timer.start ();
-	auto count = io_ctx.poll_one ();
-	if (count == 0)
+	if constexpr (nano::asio_handler_tracking_threshold () == 0)
 	{
-		std::this_thread::sleep_for (wait_time);
+		io_ctx->run_one_for (wait_time);
 	}
-	else if (count == 1 && timer.since_start ().count () >= NANO_ASIO_HANDLER_TRACKING)
+	else
 	{
-		auto timestamp = std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::system_clock::now ().time_since_epoch ()).count ();
-		std::cout << (boost::format ("[%1%] io_thread held for %2%ms") % timestamp % timer.since_start ().count ()).str () << std::endl;
+		nano::timer<> timer;
+		timer.start ();
+		auto count = io_ctx->poll_one ();
+		if (count == 0)
+		{
+			std::this_thread::sleep_for (wait_time);
+		}
+		else if (count == 1 && timer.since_start ().count () >= nano::asio_handler_tracking_threshold ())
+		{
+			logger.warn (nano::log::type::system, "Async handler processing took too long: {}ms", timer.since_start ().count ());
+		}
 	}
-#endif
 
 	std::error_code ec;
 	if (std::chrono::steady_clock::now () > deadline)
@@ -298,7 +353,20 @@ std::error_code nano::test::system::poll_until_true (std::chrono::nanoseconds de
 	deadline_set (deadline_a);
 	while (!ec && !predicate_a ())
 	{
-		ec = poll ();
+		try
+		{
+			ec = poll ();
+		}
+		catch (std::exception const & ex)
+		{
+			std::cerr << "Error running IO: " << ex.what () << std::endl;
+			ec = nano::error_system::generic;
+		}
+		catch (...)
+		{
+			std::cerr << "Unknown error running IO" << std::endl;
+			ec = nano::error_system::generic;
+		}
 	}
 	return ec;
 }
@@ -314,7 +382,7 @@ void nano::test::system::delay_ms (std::chrono::milliseconds const & delay)
 	auto endtime = now + delay;
 	while (now <= endtime)
 	{
-		io_ctx.run_one_for (endtime - now);
+		io_ctx->run_one_for (endtime - now);
 		now = std::chrono::steady_clock::now ();
 	}
 }
@@ -339,7 +407,7 @@ public:
 		if (count_l > 0)
 		{
 			auto this_l (shared_from_this ());
-			node->workers.add_timed_task (std::chrono::steady_clock::now () + std::chrono::milliseconds (wait), [this_l] () { this_l->run (); });
+			node->workers.post_delayed (std::chrono::milliseconds (wait), [this_l] () { this_l->run (); });
 		}
 	}
 	std::vector<nano::account> accounts;
@@ -368,11 +436,11 @@ void nano::test::system::generate_usage_traffic (uint32_t count_a, uint32_t wait
 
 void nano::test::system::generate_rollback (nano::node & node_a, std::vector<nano::account> & accounts_a)
 {
-	auto transaction (node_a.store.tx_begin_write ());
+	auto transaction = node_a.ledger.tx_begin_write ();
 	debug_assert (std::numeric_limits<CryptoPP::word32>::max () > accounts_a.size ());
 	auto index (random_pool::generate_word32 (0, static_cast<CryptoPP::word32> (accounts_a.size () - 1)));
 	auto account (accounts_a[index]);
-	auto info = node_a.ledger.account_info (transaction, account);
+	auto info = node_a.ledger.any.account_get (transaction, account);
 	if (info)
 	{
 		auto hash (info->open_block);
@@ -380,7 +448,7 @@ void nano::test::system::generate_rollback (nano::node & node_a, std::vector<nan
 		{
 			accounts_a[index] = accounts_a[accounts_a.size () - 1];
 			accounts_a.pop_back ();
-			std::vector<std::shared_ptr<nano::block>> rollback_list;
+			std::deque<std::shared_ptr<nano::block>> rollback_list;
 			auto error = node_a.ledger.rollback (transaction, hash, rollback_list);
 			(void)error;
 			debug_assert (!error);
@@ -396,19 +464,18 @@ void nano::test::system::generate_receive (nano::node & node_a)
 {
 	std::shared_ptr<nano::block> send_block;
 	{
-		auto transaction (node_a.store.tx_begin_read ());
+		auto transaction = node_a.ledger.tx_begin_read ();
 		nano::account random_account;
 		random_pool::generate_block (random_account.bytes.data (), sizeof (random_account.bytes));
-		auto i (node_a.store.pending.begin (transaction, nano::pending_key (random_account, 0)));
-		if (i != node_a.store.pending.end ())
+		auto item = node_a.ledger.any.receivable_upper_bound (transaction, random_account);
+		if (item != node_a.ledger.any.receivable_end ())
 		{
-			nano::pending_key const & send_hash (i->first);
-			send_block = node_a.store.block.get (transaction, send_hash.hash);
+			send_block = node_a.ledger.any.block_get (transaction, item->first.hash);
 		}
 	}
 	if (send_block != nullptr)
 	{
-		auto receive_error (wallet (0)->receive_sync (send_block, nano::dev::genesis->account (), std::numeric_limits<nano::uint128_t>::max ()));
+		auto receive_error (wallet (0)->receive_sync (send_block, nano::dev::genesis_key.pub, std::numeric_limits<nano::uint128_t>::max ()));
 		(void)receive_error;
 	}
 }
@@ -418,26 +485,32 @@ void nano::test::system::generate_activity (nano::node & node_a, std::vector<nan
 	auto what (random_pool::generate_byte ());
 	if (what < 0x1)
 	{
+		logger.debug (nano::log::type::test, "Random activity: rollback");
 		generate_rollback (node_a, accounts_a);
 	}
 	else if (what < 0x10)
 	{
+		logger.debug (nano::log::type::test, "Random activity: change known");
 		generate_change_known (node_a, accounts_a);
 	}
 	else if (what < 0x20)
 	{
+		logger.debug (nano::log::type::test, "Random activity: change unknown");
 		generate_change_unknown (node_a, accounts_a);
 	}
 	else if (what < 0x70)
 	{
+		logger.debug (nano::log::type::test, "Random activity: receive");
 		generate_receive (node_a);
 	}
 	else if (what < 0xc0)
 	{
+		logger.debug (nano::log::type::test, "Random activity: send existing");
 		generate_send_existing (node_a, accounts_a);
 	}
 	else
 	{
+		logger.debug (nano::log::type::test, "Random activity: send new");
 		generate_send_new (node_a, accounts_a);
 	}
 }
@@ -450,9 +523,9 @@ nano::account nano::test::system::get_random_account (std::vector<nano::account>
 	return result;
 }
 
-nano::uint128_t nano::test::system::get_random_amount (nano::transaction const & transaction_a, nano::node & node_a, nano::account const & account_a)
+nano::uint128_t nano::test::system::get_random_amount (secure::transaction const & transaction_a, nano::node & node_a, nano::account const & account_a)
 {
-	nano::uint128_t balance (node_a.ledger.account_balance (transaction_a, account_a));
+	nano::uint128_t balance = node_a.ledger.any.account_balance (transaction_a, account_a).value_or (0).number ();
 	nano::uint128_union random_amount;
 	nano::random_pool::generate_block (random_amount.bytes.data (), sizeof (random_amount.bytes));
 	return (((nano::uint256_t{ random_amount.number () } * balance) / nano::uint256_t{ std::numeric_limits<nano::uint128_t>::max () }).convert_to<nano::uint128_t> ());
@@ -466,13 +539,13 @@ void nano::test::system::generate_send_existing (nano::node & node_a, std::vecto
 	{
 		nano::account account;
 		random_pool::generate_block (account.bytes.data (), sizeof (account.bytes));
-		auto transaction (node_a.store.tx_begin_read ());
-		nano::store_iterator<nano::account, nano::account_info> entry (node_a.store.account.begin (transaction, account));
-		if (entry == node_a.store.account.end ())
+		auto transaction = node_a.ledger.tx_begin_read ();
+		auto entry = node_a.store.account.begin (transaction, account);
+		if (entry == node_a.store.account.end (transaction))
 		{
 			entry = node_a.store.account.begin (transaction);
 		}
-		debug_assert (entry != node_a.store.account.end ());
+		debug_assert (entry != node_a.store.account.end (transaction));
 		destination = nano::account (entry->first);
 		source = get_random_account (accounts_a);
 		amount = get_random_amount (transaction, node_a, source);
@@ -516,7 +589,7 @@ void nano::test::system::generate_send_new (nano::node & node_a, std::vector<nan
 	nano::uint128_t amount;
 	nano::account source;
 	{
-		auto transaction (node_a.store.tx_begin_read ());
+		auto transaction = node_a.ledger.tx_begin_read ();
 		source = get_random_account (accounts_a);
 		amount = get_random_amount (transaction, node_a, source);
 	}
@@ -543,7 +616,7 @@ void nano::test::system::generate_mass_activity (uint32_t count_a, nano::node & 
 		{
 			auto now (std::chrono::steady_clock::now ());
 			auto us (std::chrono::duration_cast<std::chrono::microseconds> (now - previous).count ());
-			auto count = node_a.ledger.cache.block_count.load ();
+			auto count = node_a.ledger.block_count ();
 			std::cerr << boost::str (boost::format ("Mass activity iteration %1% us %2% us/t %3% block count: %4%\n") % i % us % (us / 256) % count);
 			previous = now;
 		}
@@ -551,49 +624,39 @@ void nano::test::system::generate_mass_activity (uint32_t count_a, nano::node & 
 	}
 }
 
-void nano::test::system::stop ()
-{
-	for (auto i : nodes)
-	{
-		i->stop ();
-	}
-	work.stop ();
-}
-
 nano::node_config nano::test::system::default_config ()
 {
-	nano::node_config config{ nano::test::get_available_port (), logging };
+	nano::node_config config{ get_available_port () };
+	config.representative_vote_weight_minimum = 0;
 	return config;
 }
 
-uint16_t nano::test::get_available_port ()
+uint16_t nano::test::system::get_available_port ()
 {
+	auto base_port_str = std::getenv ("NANO_TEST_BASE_PORT");
+	if (!base_port_str)
+		return 0; // let the O/S decide
+
 	// Maximum possible sockets which may feasibly be used in 1 test
 	constexpr auto max = 200;
 	static uint16_t current = 0;
+
 	// Read the TEST_BASE_PORT environment and override the default base port if it exists
-	auto base_str = std::getenv ("TEST_BASE_PORT");
-	uint16_t base_port = 24000;
-	if (base_str)
-	{
-		base_port = boost::lexical_cast<uint16_t> (base_str);
-	}
+	uint16_t base_port = boost::lexical_cast<uint16_t> (base_port_str);
 
 	uint16_t const available_port = base_port + current;
 	++current;
+
 	// Reset port number once we have reached the maximum
-	if (current == max)
-	{
+	if (current >= max)
 		current = 0;
-	}
 
 	return available_port;
 }
 
+// Makes sure everything is cleaned up
 void nano::test::cleanup_dev_directories_on_exit ()
 {
-	// Makes sure everything is cleaned up
-	nano::logging::release_file_sink ();
 	// Clean up tmp directories created by the tests. Since it's sometimes useful to
 	// see log files after test failures, an environment variable is supported to
 	// retain the files.

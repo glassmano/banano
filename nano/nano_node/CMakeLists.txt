@@ -1,22 +1,16 @@
 add_executable(bananode daemon.cpp daemon.hpp entry.cpp)
 
-target_link_libraries(
-  bananode
-  Boost::process
-  node
-  rpc
-  secure
-  argon2
-  ${PLATFORM_LIBS})
+target_link_libraries(bananode node Boost::process ${PLATFORM_LIBS})
+
 include_directories(${CMAKE_SOURCE_DIR}/submodules)
 
 target_compile_definitions(
   bananode PRIVATE -DTAG_VERSION_STRING=${TAG_VERSION_STRING}
-                   -DGIT_COMMIT_HASH=${GIT_COMMIT_HASH})
+                    -DGIT_COMMIT_HASH=${GIT_COMMIT_HASH})
 
 set_target_properties(
   bananode PROPERTIES COMPILE_FLAGS
-                      "-DQT_NO_KEYWORDS -DBOOST_ASIO_HAS_STD_ARRAY=1")
+                       "-DQT_NO_KEYWORDS -DBOOST_ASIO_HAS_STD_ARRAY=1")
 
 add_custom_command(
   TARGET bananode
@@ -24,12 +18,14 @@ add_custom_command(
   COMMAND bananode --generate_config node >
           ${PROJECT_BINARY_DIR}/config-node.toml.sample
   COMMAND bananode --generate_config rpc >
-          ${PROJECT_BINARY_DIR}/config-rpc.toml.sample)
+          ${PROJECT_BINARY_DIR}/config-rpc.toml.sample
+  COMMAND bananode --generate_config log >
+          ${PROJECT_BINARY_DIR}/config-log.toml.sample)
 
 if((NANO_GUI OR RAIBLOCKS_GUI) AND NOT APPLE)
   if(WIN32)
     install(TARGETS bananode RUNTIME DESTINATION .)
   else()
-    install(TARGETS bananode RUNTIME DESTINATION ./bin)
+    install(TARGETS nano_node RUNTIME DESTINATION ./bin)
   endif()
 endif()

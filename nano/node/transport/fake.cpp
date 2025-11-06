@@ -14,32 +14,17 @@ nano::transport::fake::channel::channel (nano::node & node) :
 /**
  * The send function behaves like a null device, it throws the data away and returns success.
  */
-void nano::transport::fake::channel::send_buffer (nano::shared_const_buffer const & buffer_a, std::function<void (boost::system::error_code const &, std::size_t)> const & callback_a, nano::transport::buffer_drop_policy drop_policy_a, nano::transport::traffic_type traffic_type)
+bool nano::transport::fake::channel::send_impl (nano::message const & message, nano::transport::traffic_type traffic_type, nano::transport::channel::callback_t callback)
 {
-	// auto bytes = buffer_a.to_bytes ();
-	auto size = buffer_a.size ();
-	if (callback_a)
+	auto buffer = message.to_shared_const_buffer ();
+	auto size = buffer.size ();
+	if (callback)
 	{
-		node.background ([callback_a, size] () {
-			callback_a (boost::system::errc::make_error_code (boost::system::errc::success), size);
+		node.io_ctx.post ([callback, size] () {
+			callback (boost::system::errc::make_error_code (boost::system::errc::success), size);
 		});
 	}
-}
-
-std::size_t nano::transport::fake::channel::hash_code () const
-{
-	std::hash<::nano::endpoint> hash;
-	return hash (endpoint);
-}
-
-bool nano::transport::fake::channel::operator== (nano::transport::channel const & other_a) const
-{
-	return endpoint == other_a.get_endpoint ();
-}
-
-bool nano::transport::fake::channel::operator== (nano::transport::fake::channel const & other_a) const
-{
-	return endpoint == other_a.get_endpoint ();
+	return true;
 }
 
 std::string nano::transport::fake::channel::to_string () const

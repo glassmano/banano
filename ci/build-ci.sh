@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 qt_dir=${1}
 build_target=${2:-all}
@@ -27,17 +28,6 @@ fi
 
 ulimit -S -n 8192
 
-if [[ "$OS" == 'Linux' ]]; then
-    if clang --version && [ ${LCOV:-0} == 0 ]; then
-        BACKTRACE="-DNANO_STACKTRACE_BACKTRACE=ON \
-        -DNANO_BACKTRACE_INCLUDE=</tmp/backtrace.h>"
-    else
-        BACKTRACE="-DNANO_STACKTRACE_BACKTRACE=ON"
-    fi
-else
-    BACKTRACE=""
-fi
-
 cmake \
 -G'Unix Makefiles' \
 -DACTIVE_NETWORK=nano_dev_network \
@@ -47,8 +37,6 @@ cmake \
 -DNANO_WARN_TO_ERR=ON \
 -DCMAKE_BUILD_TYPE=${BUILD_TYPE:-Debug} \
 -DQt5_DIR=${qt_dir} \
--DCI_TEST="1" \
-${BACKTRACE:-} \
 ${SANITIZERS:-} \
 ..
 

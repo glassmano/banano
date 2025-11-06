@@ -68,9 +68,14 @@ std::chrono::steady_clock::time_point nano::peer_exclusion::until (const nano::t
 
 bool nano::peer_exclusion::check (nano::tcp_endpoint const & endpoint) const
 {
+	return check (endpoint.address ());
+}
+
+bool nano::peer_exclusion::check (boost::asio::ip::address const & address) const
+{
 	nano::lock_guard<nano::mutex> guard{ mutex };
 
-	if (auto existing = peers.get<tag_endpoint> ().find (endpoint.address ()); existing != peers.get<tag_endpoint> ().end ())
+	if (auto existing = peers.get<tag_endpoint> ().find (address); existing != peers.get<tag_endpoint> ().end ())
 	{
 		if (existing->score >= score_limit && existing->exclude_until > std::chrono::steady_clock::now ())
 		{
@@ -92,11 +97,11 @@ std::size_t nano::peer_exclusion::size () const
 	return peers.size ();
 }
 
-std::unique_ptr<nano::container_info_component> nano::peer_exclusion::collect_container_info (std::string const & name)
+nano::container_info nano::peer_exclusion::container_info () const
 {
 	nano::lock_guard<nano::mutex> guard{ mutex };
 
-	auto composite = std::make_unique<container_info_composite> (name);
-	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "peers", peers.size (), sizeof (decltype (peers)::value_type) }));
-	return composite;
+	nano::container_info info;
+	info.put ("peers", peers.size ());
+	return info;
 }

@@ -1,4 +1,4 @@
-#include <nano/node/common.hpp>
+#include <nano/node/endpoint.hpp>
 #include <nano/node/node.hpp>
 #include <nano/node/transport/channel.hpp>
 #include <nano/node/transport/transport.hpp>
@@ -14,50 +14,40 @@ nano::transport::channel::channel (nano::node & node_a) :
 	set_network_version (node_a.network_params.network.protocol_version);
 }
 
-void nano::transport::channel::send (nano::message & message_a, std::function<void (boost::system::error_code const &, std::size_t)> const & callback_a, nano::transport::buffer_drop_policy drop_policy_a, nano::transport::traffic_type traffic_type)
+bool nano::transport::channel::send (nano::message const & message, nano::transport::traffic_type traffic_type, callback_t callback)
 {
-	auto buffer (message_a.to_shared_const_buffer ());
-	auto detail = nano::to_stat_detail (message_a.header.type);
-	auto is_droppable_by_limiter = (drop_policy_a == nano::transport::buffer_drop_policy::limiter);
-	auto should_pass (node.outbound_limiter.should_pass (buffer.size (), to_bandwidth_limit_type (traffic_type)));
-	if (!is_droppable_by_limiter || should_pass)
-	{
-		send_buffer (buffer, callback_a, drop_policy_a, traffic_type);
-		node.stats.inc (nano::stat::type::message, detail, nano::stat::dir::out);
-	}
-	else
-	{
-		if (callback_a)
-		{
-			node.background ([callback_a] () {
-				callback_a (boost::system::errc::make_error_code (boost::system::errc::not_supported), 0);
-			});
-		}
-
-		node.stats.inc (nano::stat::type::drop, detail, nano::stat::dir::out);
-		if (node.config.logging.network_packet_logging ())
-		{
-			node.logger.always_log (boost::str (boost::format ("%1% of size %2% dropped") % nano::to_string (detail) % buffer.size ()));
-		}
-	}
+	bool sent = send_impl (message, traffic_type, std::move (callback));
+	node.stats.inc (sent ? nano::stat::type::message : nano::stat::type::drop, to_stat_detail (message.type ()), nano::stat::dir::out, /* aggregate all */ true);
+	return sent;
 }
 
 void nano::transport::channel::set_peering_endpoint (nano::endpoint endpoint)
 {
-	nano::lock_guard<nano::mutex> lock{ channel_mutex };
+	nano::lock_guard<nano::mutex> lock{ mutex };
 	peering_endpoint = endpoint;
 }
 
 nano::endpoint nano::transport::channel::get_peering_endpoint () const
 {
-	nano::unique_lock<nano::mutex> lock{ channel_mutex };
-	if (peering_endpoint)
 	{
-		return *peering_endpoint;
+		nano::lock_guard<nano::mutex> lock{ mutex };
+		if (peering_endpoint)
+		{
+			return *peering_endpoint;
+		}
 	}
-	else
-	{
-		lock.unlock ();
-		return get_endpoint ();
-	}
+	return get_remote_endpoint ();
+}
+
+std::shared_ptr<nano::node> nano::transport::channel::owner () const
+{
+	return node.shared ();
+}
+
+void nano::transport::channel::operator() (nano::object_stream & obs) const
+{
+	obs.write ("remote_endpoint", get_remote_endpoint ());
+	obs.write ("local_endpoint", get_local_endpoint ());
+	obs.write ("peering_endpoint", get_peering_endpoint ());
+	obs.write ("node_id", get_node_id ().to_node_id ());
 }
