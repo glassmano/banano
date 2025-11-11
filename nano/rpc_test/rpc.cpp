@@ -3093,13 +3093,13 @@ TEST (rpc, accounts_frontiers_with_errors)
 
 	// Adds a bad account number for getting an error response.
 	boost::property_tree::ptree entry2;
-	auto const bad_account_number = "nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1";
+	auto const bad_account_number = "ban_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1";
 	entry2.put ("", bad_account_number);
 	accounts_l.push_back (std::make_pair ("", entry2));
 
 	// Adds a valid account that isn't on the ledger for getting an error response.
 	boost::property_tree::ptree entry3;
-	auto const account_not_found = "nano_1os6txqxyuesnxrtshnfb5or1hesc1647wpk9rsr84pmki6eairwha79hk3j";
+	auto const account_not_found = "ban_1os6txqxyuesnxrtshnfb5or1hesc1647wpk9rsr84pmki6eairwha79hk3j";
 	entry3.put ("", account_not_found);
 	accounts_l.push_back (std::make_pair ("", entry3));
 
