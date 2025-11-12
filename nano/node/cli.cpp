@@ -1,17 +1,22 @@
+#include <nano/lib/blocks.hpp>
 #include <nano/lib/cli.hpp>
-#include <nano/lib/tlsconfig.hpp>
+#include <nano/lib/files.hpp>
 #include <nano/lib/tomlconfig.hpp>
 #include <nano/node/cli.hpp>
-#include <nano/node/common.hpp>
 #include <nano/node/daemonconfig.hpp>
+#include <nano/node/endpoint.hpp>
+#include <nano/node/inactive_node.hpp>
 #include <nano/node/node.hpp>
+#include <nano/secure/ledger.hpp>
+#include <nano/secure/ledger_set_any.hpp>
+#include <nano/secure/ledger_set_confirmed.hpp>
 
 #include <boost/format.hpp>
 
 namespace
 {
-void reset_confirmation_heights (nano::write_transaction const & transaction, nano::ledger_constants & constants, nano::store & store);
-bool is_using_rocksdb (boost::filesystem::path const & data_path, boost::program_options::variables_map const & vm, std::error_code & ec);
+void reset_confirmation_heights (nano::store::write_transaction const & transaction, nano::ledger_constants & constants, nano::store::component & store);
+bool is_using_rocksdb (std::filesystem::path const & data_path, boost::program_options::variables_map const & vm, std::error_code & ec);
 }
 
 std::string nano::error_cli_messages::message (int ev) const
@@ -21,7 +26,7 @@ std::string nano::error_cli_messages::message (int ev) const
 		case nano::error_cli::generic:
 			return "Unknown error";
 		case nano::error_cli::parse_error:
-			return "Coud not parse command line";
+			return "Could not parse command line";
 		case nano::error_cli::invalid_arguments:
 			return "Invalid arguments";
 		case nano::error_cli::unknown_command:
@@ -57,8 +62,10 @@ void nano::add_node_options (boost::program_options::options_description & descr
 	("final_vote_clear", "Clear final votes")
 	("rebuild_database", "Rebuild LMDB database with vacuum for best compaction")
 	("migrate_database_lmdb_to_rocksdb", "Migrates LMDB database to RocksDB")
+	("rollback", "Rolls back the specified block hash, effectively removing this block and all blocks following it")
 	("diagnostics", "Run internal diagnostics")
-	("generate_config", boost::program_options::value<std::string> (), "Write configuration to stdout, populated with defaults suitable for this system. Pass the configuration type node, rpc or tls. See also use_defaults.")
+	("generate_config", boost::program_options::value<std::string> (), "Write configuration to stdout, populated with defaults suitable for this system. Pass the configuration type node, rpc or log. See also use_defaults.")
+	("update_config", "Reads the current node configuration and updates it with missing keys and values and delete keys that are no longer used. Updated configuration is written to stdout.")
 	("key_create", "Generates a adhoc random keypair and prints it to stdout")
 	("key_expand", "Derive public key and account number from <key>")
 	("wallet_add_adhoc", "Insert <key> in to <wallet>")
@@ -68,25 +75,25 @@ void nano::add_node_options (boost::program_options::options_description & descr
 	("wallet_destroy", "Destroys <wallet> and all keys it contains")
 	("wallet_import", "Imports keys in <file> using <password> in to <wallet>")
 	("wallet_list", "Dumps wallet IDs and public keys")
-	("wallet_remove", "Remove <account> from <wallet>")
-	("wallet_representative_get", "Prints default representative for <wallet>")
-	("wallet_representative_set", "Set <account> as default representative for <wallet>")
 	("timestamps_import", "Imports a CSV file, overwriting the timestamps recorded in the database (warning: high resource usage).")
 	("timestamps_export", "Writes a CSV file with the local timestamp recorded for each hash with timestamp in the database.")
 	("timestamps_update_frontiers", "Updates the 'modified' timestamp of each account chain with the stamps of each frontier")
+	("wallet_remove", "Remove <account> from <wallet>")
+	("wallet_representative_get", "Prints default representative for <wallet>")
+	("wallet_representative_set", "Set <account> as default representative for <wallet>")
 	("all", "Only valid with --final_vote_clear")
 	("account", boost::program_options::value<std::string> (), "Defines <account> for other commands")
 	("root", boost::program_options::value<std::string> (), "Defines <root> for other commands")
+	("hash", boost::program_options::value<std::string> (), "Defines <hash> for other commands")
 	("file", boost::program_options::value<std::string> (), "Defines <file> for other commands")
 	("key", boost::program_options::value<std::string> (), "Defines the <key> for other commands, hex")
 	("seed", boost::program_options::value<std::string> (), "Defines the <seed> for other commands, hex")
+	("start_timestamp", boost::program_options::value<std::string> (), "Defines <start_timestamp> for other commands")
+	("end_timestamp", boost::program_options::value<std::string> (), "Defines <start_timestamp> for other commands")
 	("password", boost::program_options::value<std::string> (), "Defines <password> for other commands")
 	("wallet", boost::program_options::value<std::string> (), "Defines <wallet> for other commands")
 	("force", boost::program_options::value<bool>(), "Bool to force command if allowed")
-	("use_defaults", "If present, the generate_config command will generate uncommented entries")
-	("start_timestamp", boost::program_options::value<std::string> (), "Defines <start_timestamp> for other commands")
-	("end_timestamp", boost::program_options::value<std::string> (), "Defines <start_timestamp> for other commands")
-	;
+	("use_defaults", "If present, the generate_config command will generate uncommented entries");
 	// clang-format on
 }
 
@@ -95,23 +102,28 @@ void nano::add_node_flag_options (boost::program_options::options_description & 
 	// clang-format off
 	description_a.add_options()
 		("disable_add_initial_peers", "Disable contacting the peer in the peers table at startup")
+		("disable_max_peers_per_ip", "Disables the limit on the number of peer connections allowed per IP address")
+		("disable_max_peers_per_subnetwork", "Disables the limit on the number of peer connections allowed per subnetwork")
+		("disable_activate_successors", "Disables activate_successors in active_elections")
 		("disable_backup", "Disable wallet automatic backups")
 		("disable_lazy_bootstrap", "Disables lazy bootstrap")
 		("disable_legacy_bootstrap", "Disables legacy bootstrap")
 		("disable_wallet_bootstrap", "Disables wallet lazy bootstrap")
 		("disable_ongoing_bootstrap", "Disable ongoing bootstrap")
-		("disable_ascending_bootstrap", "Disable ascending bootstrap")
 		("disable_rep_crawler", "Disable rep crawler")
 		("disable_request_loop", "Disable request loop")
 		("disable_bootstrap_listener", "Disables bootstrap processing for TCP listener (not including realtime network TCP connections)")
-		("disable_tcp_realtime", "Disables TCP realtime network")
-		("disable_udp", "(Deprecated) UDP is disabled by default")
-		("enable_udp", "Enables UDP realtime network")
 		("disable_unchecked_cleanup", "Disables periodic cleanup of old records from unchecked table")
 		("disable_unchecked_drop", "Disables drop of unchecked table at startup")
 		("disable_providing_telemetry_metrics", "Disable using any node information in the telemetry_ack messages.")
 		("disable_block_processor_unchecked_deletion", "Disable deletion of unchecked blocks after processing")
+		("disable_bootstrap_bulk_pull_server", "Disables the legacy bulk pull server for bootstrap operations")
+		("disable_bootstrap_bulk_push_client", "Disables the legacy bulk push client for bootstrap operations")
+		("disable_tcp_realtime", "Disables TCP realtime connections")
+		("disable_block_processor_republishing", "Disables block republishing by disabling the local_block_broadcaster component")
+		("disable_search_pending", "Disables the periodic search for pending transactions")
 		("enable_pruning", "Enable experimental ledger pruning")
+		("enable_voting", "Enable voting")
 		("allow_bootstrap_peers_duplicates", "Allow multiple connections to same peer in bootstrap attempts")
 		("fast_bootstrap", "Increase bootstrap speed for high end nodes with higher limits")
 		("block_processor_batch_size", boost::program_options::value<std::size_t>(), "Increase block processor transaction batch write size, default 0 (limited by config block_processor_batch_max_time), 256k for fast_bootstrap")
@@ -119,6 +131,7 @@ void nano::add_node_flag_options (boost::program_options::options_description & 
 		("block_processor_verification_size", boost::program_options::value<std::size_t>(), "Increase batch signature verification size in block processor, default 0 (limited by config signature_checker_threads), unlimited for fast_bootstrap")
 		("inactive_votes_cache_size", boost::program_options::value<std::size_t>(), "Increase cached votes without active elections size, default 16384")
 		("vote_processor_capacity", boost::program_options::value<std::size_t>(), "Vote processor queue size before dropping votes, default 144k")
+		("disable_large_votes", boost::program_options::value<bool>(), "Disable large votes")
 		;
 	// clang-format on
 }
@@ -127,23 +140,29 @@ std::error_code nano::update_flags (nano::node_flags & flags_a, boost::program_o
 {
 	std::error_code ec;
 	flags_a.disable_add_initial_peers = (vm.count ("disable_add_initial_peers") > 0);
+	flags_a.disable_max_peers_per_ip = (vm.count ("disable_max_peers_per_ip") > 0);
+	flags_a.disable_max_peers_per_subnetwork = (vm.count ("disable_max_peers_per_subnetwork") > 0);
+	flags_a.disable_activate_successors = (vm.count ("disable_activate_successors") > 0);
 	flags_a.disable_backup = (vm.count ("disable_backup") > 0);
 	flags_a.disable_lazy_bootstrap = (vm.count ("disable_lazy_bootstrap") > 0);
 	flags_a.disable_legacy_bootstrap = (vm.count ("disable_legacy_bootstrap") > 0);
 	flags_a.disable_wallet_bootstrap = (vm.count ("disable_wallet_bootstrap") > 0);
 	flags_a.disable_ongoing_bootstrap = (vm.count ("disable_ongoing_bootstrap") > 0);
-	flags_a.disable_ascending_bootstrap = (vm.count ("disable_ascending_bootstrap") > 0);
 	flags_a.disable_rep_crawler = (vm.count ("disable_rep_crawler") > 0);
 	flags_a.disable_request_loop = (vm.count ("disable_request_loop") > 0);
+	flags_a.disable_bootstrap_bulk_pull_server = (vm.count ("disable_bootstrap_bulk_pull_server") > 0);
+	flags_a.disable_bootstrap_bulk_push_client = (vm.count ("disable_bootstrap_bulk_push_client") > 0);
+	flags_a.disable_tcp_realtime = (vm.count ("disable_tcp_realtime") > 0);
+	flags_a.disable_block_processor_republishing = (vm.count ("disable_block_processor_republishing") > 0);
+	flags_a.disable_search_pending = (vm.count ("disable_search_pending") > 0);
 	if (!flags_a.inactive_node)
 	{
 		flags_a.disable_bootstrap_listener = (vm.count ("disable_bootstrap_listener") > 0);
 	}
 	flags_a.disable_providing_telemetry_metrics = (vm.count ("disable_providing_telemetry_metrics") > 0);
-	flags_a.disable_unchecked_cleanup = (vm.count ("disable_unchecked_cleanup") > 0);
-	flags_a.disable_unchecked_drop = (vm.count ("disable_unchecked_drop") > 0);
 	flags_a.disable_block_processor_unchecked_deletion = (vm.count ("disable_block_processor_unchecked_deletion") > 0);
 	flags_a.enable_pruning = (vm.count ("enable_pruning") > 0);
+	flags_a.enable_voting = (vm.count ("enable_voting") > 0);
 	flags_a.allow_bootstrap_peers_duplicates = (vm.count ("allow_bootstrap_peers_duplicates") > 0);
 	flags_a.fast_bootstrap = (vm.count ("fast_bootstrap") > 0);
 	if (flags_a.fast_bootstrap)
@@ -168,15 +187,16 @@ std::error_code nano::update_flags (nano::node_flags & flags_a, boost::program_o
 	{
 		flags_a.block_processor_verification_size = block_processor_verification_size_it->second.as<std::size_t> ();
 	}
-	auto inactive_votes_cache_size_it = vm.find ("inactive_votes_cache_size");
-	if (inactive_votes_cache_size_it != vm.end ())
-	{
-		flags_a.inactive_votes_cache_size = inactive_votes_cache_size_it->second.as<std::size_t> ();
-	}
 	auto vote_processor_capacity_it = vm.find ("vote_processor_capacity");
 	if (vote_processor_capacity_it != vm.end ())
 	{
 		flags_a.vote_processor_capacity = vote_processor_capacity_it->second.as<std::size_t> ();
+	}
+	auto disable_large_votes_it = vm.find ("disable_large_votes");
+	if (disable_large_votes_it != vm.end ())
+	{
+		nano::network::confirm_req_hashes_max = 7;
+		nano::network::confirm_ack_hashes_max = 12;
 	}
 	// Config overriding
 	auto config (vm.find ("config"));
@@ -195,7 +215,7 @@ std::error_code nano::update_flags (nano::node_flags & flags_a, boost::program_o
 std::error_code nano::flags_config_conflicts (nano::node_flags const & flags_a, nano::node_config const & config_a)
 {
 	std::error_code ec;
-	if (flags_a.enable_pruning && config_a.enable_voting)
+	if (flags_a.enable_pruning && (config_a.enable_voting || flags_a.enable_voting))
 	{
 		ec = nano::error_cli::ambiguous_pruning_voting_options;
 	}
@@ -210,7 +230,7 @@ void database_write_lock_error (std::error_code & ec)
 	ec = nano::error_cli::database_write_error;
 }
 
-bool copy_database (boost::filesystem::path const & data_path, boost::program_options::variables_map const & vm, boost::filesystem::path const & output_path, std::error_code & ec)
+bool copy_database (std::filesystem::path const & data_path, boost::program_options::variables_map const & vm, std::filesystem::path const & output_path, std::error_code & ec)
 {
 	bool success = false;
 	bool needs_to_write = vm.count ("unchecked_clear") || vm.count ("clear_send_ids") || vm.count ("online_weight_clear") || vm.count ("peer_clear") || vm.count ("confirmation_height_clear") || vm.count ("final_vote_clear") || vm.count ("rebuild_database");
@@ -264,10 +284,13 @@ bool copy_database (boost::filesystem::path const & data_path, boost::program_op
 std::error_code nano::handle_node_options (boost::program_options::variables_map const & vm)
 {
 	std::error_code ec;
-	boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+	std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 
 	if (vm.count ("initialize"))
 	{
+		// TODO: --config flag overrides are not taken into account here
+		nano::logger::initialize (nano::log_config::daemon_default (), data_path);
+
 		auto node_flags = nano::inactive_node_flag_defaults ();
 		node_flags.read_only = false;
 		nano::update_flags (node_flags, vm);
@@ -329,7 +352,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 		}
 		else
 		{
-			std::cerr << "account comand requires one <key> option\n";
+			std::cerr << "account command requires one <key> option\n";
 			ec = nano::error_cli::invalid_arguments;
 		}
 	}
@@ -355,17 +378,17 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			if (!ec)
 			{
 				std::cout << "Vacuuming database copy in ";
-				boost::filesystem::path source_path;
-				boost::filesystem::path backup_path;
-				boost::filesystem::path vacuum_path;
+				std::filesystem::path source_path;
+				std::filesystem::path backup_path;
+				std::filesystem::path vacuum_path;
 				if (using_rocksdb)
 				{
 					source_path = data_path / "rocksdb";
 					backup_path = source_path / "backup";
 					vacuum_path = backup_path / "vacuumed";
-					if (!boost::filesystem::exists (vacuum_path))
+					if (!std::filesystem::exists (vacuum_path))
 					{
-						boost::filesystem::create_directories (vacuum_path);
+						std::filesystem::create_directories (vacuum_path);
 					}
 
 					std::cout << source_path << "\n";
@@ -389,13 +412,13 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 						nano::remove_all_files_in_dir (backup_path);
 						nano::move_all_files_to_dir (source_path, backup_path);
 						nano::move_all_files_to_dir (vacuum_path, source_path);
-						boost::filesystem::remove_all (vacuum_path);
+						std::filesystem::remove_all (vacuum_path);
 					}
 					else
 					{
-						boost::filesystem::remove (backup_path);
-						boost::filesystem::rename (source_path, backup_path);
-						boost::filesystem::rename (vacuum_path, source_path);
+						std::filesystem::remove (backup_path);
+						std::filesystem::rename (source_path, backup_path);
+						std::filesystem::rename (vacuum_path, source_path);
 					}
 					std::cout << "Vacuum completed" << std::endl;
 				}
@@ -409,7 +432,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 				std::cerr << "Vacuum failed. RocksDB is enabled but the node has not been built with RocksDB support" << std::endl;
 			}
 		}
-		catch (boost::filesystem::filesystem_error const & ex)
+		catch (std::filesystem::filesystem_error const & ex)
 		{
 			std::cerr << "Vacuum failed during a file operation: " << ex.what () << std::endl;
 		}
@@ -425,8 +448,8 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			auto using_rocksdb = is_using_rocksdb (data_path, vm, ec);
 			if (!ec)
 			{
-				boost::filesystem::path source_path;
-				boost::filesystem::path snapshot_path;
+				std::filesystem::path source_path;
+				std::filesystem::path snapshot_path;
 				if (using_rocksdb)
 				{
 					source_path = data_path / "rocksdb";
@@ -456,7 +479,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 				std::cerr << "Snapshot failed. RocksDB is enabled but the node has not been built with RocksDB support" << std::endl;
 			}
 		}
-		catch (boost::filesystem::filesystem_error const & ex)
+		catch (std::filesystem::filesystem_error const & ex)
 		{
 			std::cerr << "Snapshot failed during a file operation: " << ex.what () << std::endl;
 		}
@@ -467,7 +490,9 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("migrate_database_lmdb_to_rocksdb"))
 	{
-		auto data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		nano::logger::initialize (nano::log_config::daemon_default (), data_path);
+
+		auto data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto node_flags = nano::inactive_node_flag_defaults ();
 		node_flags.config_overrides.push_back ("node.rocksdb.enable=false");
 		nano::update_flags (node_flags, vm);
@@ -475,7 +500,6 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 		auto error (false);
 		if (!node.node->init_error ())
 		{
-			std::cout << "Migrating LMDB database to RocksDB, might take a while..." << std::endl;
 			error = node.node->ledger.migrate_lmdb_to_rocksdb (data_path);
 		}
 		else
@@ -483,18 +507,79 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			error = true;
 		}
 
-		if (!error)
-		{
-			std::cout << "Migration completed, after confirming it is correct the data.ldb file can be deleted if no longer required" << std::endl;
-		}
-		else
+		if (error)
 		{
 			std::cerr << "There was an error migrating" << std::endl;
 		}
 	}
+	else if (vm.count ("rollback"))
+	{
+		if (vm.count ("hash") == 1)
+		{
+			nano::block_hash block_hash;
+			if (!block_hash.decode_hex (vm["hash"].as<std::string> ()))
+			{
+				std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+				auto node_flags = nano::inactive_node_flag_defaults ();
+				node_flags.read_only = false;
+				nano::update_flags (node_flags, vm);
+
+				nano::inactive_node node (data_path, node_flags);
+				if (!node.node->init_error ())
+				{
+					auto transaction (node.node->ledger.tx_begin_write ());
+					auto block = node.node->ledger.any.block_get (transaction, block_hash);
+					if (block != nullptr)
+					{
+						if (!node.node->ledger.confirmed.block_exists (transaction, block_hash))
+						{
+							std::cout << "Rolling back " << block_hash.to_string () << " ..." << std::endl;
+
+							std::deque<std::shared_ptr<nano::block>> rollback_list;
+							bool error = node.node->ledger.rollback (transaction, block_hash, rollback_list);
+							if (!error)
+							{
+								std::cout << "Block rollback complete" << std::endl;
+								std::cout << "Rolled back " << rollback_list.size () << " dependent blocks" << std::endl;
+							}
+							else
+							{
+								std::cerr << "Error rolling back block, rolled back " << rollback_list.size () << " dependents" << std::endl;
+								ec = nano::error_cli::generic;
+							}
+						}
+						else
+						{
+							std::cerr << "Cannot rollback cemented block" << std::endl;
+							ec = nano::error_cli::invalid_arguments;
+						}
+					}
+					else
+					{
+						std::cerr << "Block not found in ledger" << std::endl;
+						ec = nano::error_cli::invalid_arguments;
+					}
+				}
+				else
+				{
+					database_write_lock_error (ec);
+				}
+			}
+			else
+			{
+				std::cerr << "Invalid block hash" << std::endl;
+				ec = nano::error_cli::invalid_arguments;
+			}
+		}
+		else
+		{
+			std::cerr << "rollback command requires one <hash> option\n";
+			ec = nano::error_cli::invalid_arguments;
+		}
+	}
 	else if (vm.count ("unchecked_clear"))
 	{
-		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto node_flags = nano::inactive_node_flag_defaults ();
 		node_flags.read_only = false;
 		nano::update_flags (node_flags, vm);
@@ -512,7 +597,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("clear_send_ids"))
 	{
-		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto node_flags = nano::inactive_node_flag_defaults ();
 		node_flags.read_only = false;
 		nano::update_flags (node_flags, vm);
@@ -530,7 +615,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("online_weight_clear"))
 	{
-		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto node_flags = nano::inactive_node_flag_defaults ();
 		node_flags.read_only = false;
 		nano::update_flags (node_flags, vm);
@@ -548,7 +633,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("peer_clear"))
 	{
-		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto node_flags = nano::inactive_node_flag_defaults ();
 		node_flags.read_only = false;
 		nano::update_flags (node_flags, vm);
@@ -566,7 +651,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("confirmation_height_clear"))
 	{
-		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto node_flags = nano::inactive_node_flag_defaults ();
 		node_flags.read_only = false;
 		nano::update_flags (node_flags, vm);
@@ -627,7 +712,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("final_vote_clear"))
 	{
-		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto node_flags = nano::inactive_node_flag_defaults ();
 		node_flags.read_only = false;
 		nano::update_flags (node_flags, vm);
@@ -638,10 +723,10 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			{
 				auto root_str = root_it->second.as<std::string> ();
 				auto transaction (node.node->store.tx_begin_write ());
-				nano::root root;
+				nano::qualified_root root;
 				if (!root.decode_hex (root_str))
 				{
-					node.node->store.final_vote.clear (transaction, root);
+					node.node->store.final_vote.del (transaction, root);
 					std::cout << "Successfully cleared final votes" << std::endl;
 				}
 				else
@@ -685,10 +770,10 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			nano::rpc_config config{ nano::dev::network_params.network };
 			config.serialize_toml (toml);
 		}
-		else if (type == "tls")
+		else if (type == "log")
 		{
 			valid_type = true;
-			nano::tls_config config;
+			nano::log_config config = nano::log_config::sample_config ();
 			config.serialize_toml (toml);
 		}
 		else
@@ -698,7 +783,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 
 		if (valid_type)
 		{
-			std::cout << "# This is an example configuration file for Banano. Visit https://docs.nano.org/running-a-node/configuration/ for more information.\n#\n"
+			std::cout << "# This is an example configuration file for Nano. Visit https://docs.nano.org/running-a-node/configuration/ for more information.\n#\n"
 					  << "# Fields may need to be defined in the context of a [category] above them.\n"
 					  << "# The desired configuration changes should be placed in config-" << type << ".toml in the node data path.\n"
 					  << "# To change a value from its default, uncomment (erasing #) the corresponding field.\n"
@@ -707,12 +792,37 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 
 			if (vm.count ("use_defaults"))
 			{
-				std::cout << toml.to_string () << std::endl;
+				std::cout << toml.to_string (false) << std::endl;
 			}
 			else
 			{
-				std::cout << toml.to_string_commented_entries () << std::endl;
+				std::cout << toml.to_string (true) << std::endl;
 			}
+		}
+	}
+	else if (vm.count ("update_config"))
+	{
+		nano::network_params network_params{ nano::network_constants::active_network };
+		nano::tomlconfig default_toml;
+		nano::tomlconfig current_toml;
+		nano::daemon_config default_config{ data_path, network_params };
+		nano::daemon_config current_config{ data_path, network_params };
+
+		std::vector<std::string> config_overrides;
+		auto error = nano::read_node_config_toml (data_path, current_config, config_overrides);
+		if (error)
+		{
+			std::cerr << "Could not read existing config file\n";
+			ec = nano::error_cli::reading_config;
+		}
+		else
+		{
+			current_config.serialize_toml (current_toml);
+			default_config.serialize_toml (default_toml);
+
+			auto output = current_toml.merge_defaults (current_toml, default_toml);
+
+			std::cout << output;
 		}
 	}
 	else if (vm.count ("diagnostics"))
@@ -744,7 +854,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			environment.dump (std::cout);
 			std::stringstream stream;
 			environment.dump (stream);
-			inactive_node->node->logger.always_log (stream.str ());
+			std::cout << stream.str () << std::endl;
 		}
 		else
 		{
@@ -977,7 +1087,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 						nano::raw_key seed;
 						existing->second->store.seed (seed, transaction);
 						std::cout << boost::str (boost::format ("Seed: %1%\n") % seed.to_string ());
-						for (auto i (existing->second->store.begin (transaction)), m (existing->second->store.end ()); i != m; ++i)
+						for (auto i (existing->second->store.begin (transaction)), m (existing->second->store.end (transaction)); i != m; ++i)
 						{
 							nano::account const & account (i->first);
 							nano::raw_key key;
@@ -1166,7 +1276,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 		{
 			std::cout << boost::str (boost::format ("Wallet ID: %1%\n") % i->first.to_string ());
 			auto transaction (i->second->wallets.tx_begin_read ());
-			for (auto j (i->second->store.begin (transaction)), m (i->second->store.end ()); j != m; ++j)
+			for (auto j (i->second->store.begin (transaction)), m (i->second->store.end (transaction)); j != m; ++j)
 			{
 				std::cout << nano::account (j->first).to_account () << '\n';
 			}
@@ -1189,7 +1299,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 					{
 						auto transaction (wallet->second->wallets.tx_begin_write ());
 						auto account (wallet->second->store.find (transaction, account_id));
-						if (account != wallet->second->store.end ())
+						if (account != wallet->second->store.end (transaction))
 						{
 							wallet->second->store.erase (transaction, account_id);
 						}
@@ -1325,7 +1435,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 					std::cout << "Importing timestamps from " << filename << std::endl;
 					std::cout << "This may take a while..." << std::endl;
 
-					boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+					std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 					auto transaction (node.node->store.tx_begin_read ());
 					std::vector<std::pair<nano::block_hash, uint64_t>> pairs;
 					pairs.reserve (node.node->store.block.count (transaction));
@@ -1438,7 +1548,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	{
 		auto inactive_node = nano::default_inactive_node (data_path, vm);
 
-		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 		auto timestamps_path = data_path / "timestamps.csv";
 
 		uint64_t start_timestamp = nano::vote::timestamp_min;
@@ -1474,7 +1584,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 
 			std::cout << "Reading database..." << std::endl;
 
-			for (auto i (inactive_node->node->store.account.begin (transaction)), n (inactive_node->node->store.account.end ()); i != n; ++i, ++count)
+			for (auto i (inactive_node->node->store.account.begin (transaction)), n (inactive_node->node->store.account.end (transaction)); i != n; ++i, ++count)
 			{
 				auto hash (i->second.head);
 				auto block (inactive_node->node->store.block.get (transaction, hash));
@@ -1509,7 +1619,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 					}
 					std::cout << "Completed exporting timestamps, the file can be found in " << timestamps_path << std::endl;
 				}
-				catch (const boost::filesystem::filesystem_error & ex)
+				catch (const std::filesystem::filesystem_error & ex)
 				{
 					std::cerr << "Timestamps export failed during a file operation: " << ex.what () << std::endl;
 				}
@@ -1526,20 +1636,24 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	}
 	else if (vm.count ("timestamps_update_frontiers") == 1)
 	{
+		std::cout << "Not SUppported, timestamps are read only" << std::endl;
+		/*
+
 		auto inactive_node = nano::default_inactive_node (data_path, vm);
 
-		boost::filesystem::path data_path = vm.count ("data_path") ? boost::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
+		std::filesystem::path data_path = vm.count ("data_path") ? std::filesystem::path (vm["data_path"].as<std::string> ()) : nano::working_path ();
 
 		std::cout << "Updating account information..." << std::endl;
 
 		auto transaction (inactive_node->node->store.tx_begin_write ());
 
-		for (auto i (inactive_node->node->store.account.begin (transaction)), n (inactive_node->node->store.account.end ()); i != n; ++i)
+		for (auto i (inactive_node->node->store.account.begin (transaction)), n (inactive_node->node->store.account.end (transaction)); i != n; ++i)
 		{
 			auto block (inactive_node->node->store.block.get (transaction, i->second.head));
 			i->second.modified = block->sideband ().timestamp;
 			inactive_node->node->store.account.put (transaction, i->first, i->second);
 		}
+		*/
 	}
 	else
 	{
@@ -1549,7 +1663,7 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	return ec;
 }
 
-std::unique_ptr<nano::inactive_node> nano::default_inactive_node (boost::filesystem::path const & path_a, boost::program_options::variables_map const & vm_a)
+std::unique_ptr<nano::inactive_node> nano::default_inactive_node (std::filesystem::path const & path_a, boost::program_options::variables_map const & vm_a)
 {
 	auto node_flags = nano::inactive_node_flag_defaults ();
 	nano::update_flags (node_flags, vm_a);
@@ -1558,7 +1672,7 @@ std::unique_ptr<nano::inactive_node> nano::default_inactive_node (boost::filesys
 
 namespace
 {
-void reset_confirmation_heights (nano::write_transaction const & transaction, nano::ledger_constants & constants, nano::store & store)
+void reset_confirmation_heights (nano::store::write_transaction const & transaction, nano::ledger_constants & constants, nano::store::component & store)
 {
 	// First do a clean sweep
 	store.confirmation_height.clear (transaction);
@@ -1567,7 +1681,7 @@ void reset_confirmation_heights (nano::write_transaction const & transaction, na
 	store.confirmation_height.put (transaction, constants.genesis->account (), { 1, constants.genesis->hash () });
 }
 
-bool is_using_rocksdb (boost::filesystem::path const & data_path, boost::program_options::variables_map const & vm, std::error_code & ec)
+bool is_using_rocksdb (std::filesystem::path const & data_path, boost::program_options::variables_map const & vm, std::error_code & ec)
 {
 	nano::network_params network_params{ nano::network_constants::active_network };
 	nano::daemon_config config{ data_path, network_params };

@@ -18,30 +18,20 @@ namespace transport
 			explicit channel (nano::node &);
 
 			std::string to_string () const override;
-			std::size_t hash_code () const override;
-
-			void send_buffer (
-			nano::shared_const_buffer const &,
-			std::function<void (boost::system::error_code const &, std::size_t)> const & = nullptr,
-			nano::transport::buffer_drop_policy = nano::transport::buffer_drop_policy::limiter,
-			nano::transport::traffic_type = nano::transport::traffic_type::generic) override;
-
-			bool operator== (nano::transport::channel const &) const override;
-			bool operator== (nano::transport::fake::channel const & other_a) const;
 
 			void set_endpoint (nano::endpoint const & endpoint_a)
 			{
 				endpoint = endpoint_a;
 			}
 
-			nano::endpoint get_endpoint () const override
+			nano::endpoint get_remote_endpoint () const override
 			{
 				return endpoint;
 			}
 
-			nano::tcp_endpoint get_tcp_endpoint () const override
+			nano::endpoint get_local_endpoint () const override
 			{
-				return nano::transport::map_endpoint_to_tcp (endpoint);
+				return endpoint;
 			}
 
 			nano::transport::transport_type get_type () const override
@@ -49,7 +39,7 @@ namespace transport
 				return nano::transport::transport_type::fake;
 			}
 
-			void close ()
+			void close () override
 			{
 				closed = true;
 			}
@@ -58,6 +48,9 @@ namespace transport
 			{
 				return !closed;
 			}
+
+		protected:
+			bool send_impl (nano::message const &, nano::transport::traffic_type, nano::transport::channel::callback_t) override;
 
 		private:
 			nano::endpoint endpoint;
