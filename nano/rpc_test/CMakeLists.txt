@@ -1,6 +1,16 @@
-add_executable(rpc_test common.hpp common.cpp entry.cpp receivable.cpp rpc.cpp)
+add_executable(
+  rpc_test
+  common.hpp
+  rpc_context.hpp
+  test_response.hpp
+  rpc_context.cpp
+  test_response.cpp
+  common.cpp
+  entry.cpp
+  receivable.cpp
+  rpc.cpp)
 
-target_link_libraries(rpc_test node secure rpc test_common gtest)
+target_link_libraries(rpc_test test_common)
 
 target_compile_definitions(
   rpc_test

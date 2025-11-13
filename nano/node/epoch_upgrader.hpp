@@ -1,23 +1,22 @@
 #pragma once
 
-#include <nano/lib/epoch.hpp>
+#include <nano/lib/fwd.hpp>
 #include <nano/lib/locks.hpp>
+#include <nano/lib/logging.hpp>
 #include <nano/lib/numbers.hpp>
+#include <nano/node/fwd.hpp>
+#include <nano/secure/fwd.hpp>
+#include <nano/store/fwd.hpp>
 
+#include <cstdint>
 #include <future>
 
 namespace nano
 {
-class node;
-class ledger;
-class store;
-class network_params;
-class logger_mt;
-
 class epoch_upgrader final
 {
 public:
-	epoch_upgrader (nano::node &, nano::ledger &, nano::store &, nano::network_params &, nano::logger_mt &);
+	epoch_upgrader (nano::node &, nano::ledger &, nano::store::component &, nano::network_params &, nano::logger &);
 
 	bool start (nano::raw_key const & prv, nano::epoch epoch, uint64_t count_limit, uint64_t threads);
 	void stop ();
@@ -25,9 +24,9 @@ public:
 private: // Dependencies
 	nano::node & node;
 	nano::ledger & ledger;
-	nano::store & store;
+	nano::store::component & store;
 	nano::network_params & network_params;
-	nano::logger_mt & logger;
+	nano::logger & logger;
 
 private:
 	void upgrade_impl (nano::raw_key const & prv, nano::epoch epoch, uint64_t count_limit, uint64_t threads);

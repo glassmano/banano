@@ -1,11 +1,12 @@
+#include <nano/lib/enum_util.hpp>
 #include <nano/node/node.hpp>
 #include <nano/node/transport/message_deserializer.hpp>
 
-nano::transport::message_deserializer::message_deserializer (nano::network_constants const & network_constants_a, nano::network_filter & publish_filter_a, nano::block_uniquer & block_uniquer_a, nano::vote_uniquer & vote_uniquer_a,
+nano::transport::message_deserializer::message_deserializer (nano::network_constants const & network_constants_a, nano::network_filter & network_filter_a, nano::block_uniquer & block_uniquer_a, nano::vote_uniquer & vote_uniquer_a,
 read_query read_op) :
 	read_buffer{ std::make_shared<std::vector<uint8_t>> () },
 	network_constants_m{ network_constants_a },
-	publish_filter_m{ publish_filter_a },
+	network_filter_m{ network_filter_a },
 	block_uniquer_m{ block_uniquer_a },
 	vote_uniquer_m{ vote_uniquer_a },
 	read_op{ std::move (read_op) }
@@ -127,9 +128,9 @@ std::unique_ptr<nano::message> nano::transport::message_deserializer::deserializ
 		}
 		case nano::message_type::publish:
 		{
-			// Early filtering to not waste time deserializing duplicate blocks
+			// Early filtering to not waste time deserializing duplicates
 			nano::uint128_t digest;
-			if (!publish_filter_m.apply (read_buffer->data (), payload_size, &digest))
+			if (!network_filter_m.apply (read_buffer->data (), payload_size, &digest))
 			{
 				return deserialize_publish (stream, header, digest);
 			}
@@ -145,7 +146,17 @@ std::unique_ptr<nano::message> nano::transport::message_deserializer::deserializ
 		}
 		case nano::message_type::confirm_ack:
 		{
-			return deserialize_confirm_ack (stream, header);
+			// Early filtering to not waste time deserializing duplicates
+			nano::uint128_t digest;
+			if (!network_filter_m.apply (read_buffer->data (), payload_size, &digest))
+			{
+				return deserialize_confirm_ack (stream, header, digest);
+			}
+			else
+			{
+				status = parse_status::duplicate_confirm_ack_message;
+			}
+			break;
 		}
 		case nano::message_type::node_id_handshake:
 		{
@@ -207,7 +218,7 @@ std::unique_ptr<nano::keepalive> nano::transport::message_deserializer::deserial
 	return {};
 }
 
-std::unique_ptr<nano::publish> nano::transport::message_deserializer::deserialize_publish (nano::stream & stream, nano::message_header const & header, nano::uint128_t const & digest_a)
+std::unique_ptr<nano::publish> nano::transport::message_deserializer::deserialize_publish (nano::stream & stream, nano::message_header const & header, nano::network_filter::digest_t const & digest_a)
 {
 	auto error = false;
 	auto incoming = std::make_unique<nano::publish> (error, stream, header, digest_a, &block_uniquer_m);
@@ -233,17 +244,10 @@ std::unique_ptr<nano::publish> nano::transport::message_deserializer::deserializ
 std::unique_ptr<nano::confirm_req> nano::transport::message_deserializer::deserialize_confirm_req (nano::stream & stream, nano::message_header const & header)
 {
 	auto error = false;
-	auto incoming = std::make_unique<nano::confirm_req> (error, stream, header, &block_uniquer_m);
+	auto incoming = std::make_unique<nano::confirm_req> (error, stream, header);
 	if (!error && nano::at_end (stream))
 	{
-		if (incoming->block == nullptr || !network_constants_m.work.validate_entry (*incoming->block))
-		{
-			return incoming;
-		}
-		else
-		{
-			status = parse_status::insufficient_work;
-		}
+		return incoming;
 	}
 	else
 	{
@@ -252,10 +256,10 @@ std::unique_ptr<nano::confirm_req> nano::transport::message_deserializer::deseri
 	return {};
 }
 
-std::unique_ptr<nano::confirm_ack> nano::transport::message_deserializer::deserialize_confirm_ack (nano::stream & stream, nano::message_header const & header)
+std::unique_ptr<nano::confirm_ack> nano::transport::message_deserializer::deserialize_confirm_ack (nano::stream & stream, nano::message_header const & header, nano::network_filter::digest_t const & digest_a)
 {
 	auto error = false;
-	auto incoming = std::make_unique<nano::confirm_ack> (error, stream, header, &vote_uniquer_m);
+	auto incoming = std::make_unique<nano::confirm_ack> (error, stream, header, digest_a, &vote_uniquer_m);
 	if (!error && nano::at_end (stream))
 	{
 		return incoming;
@@ -387,143 +391,16 @@ std::unique_ptr<nano::asc_pull_ack> nano::transport::message_deserializer::deser
 	return {};
 }
 
-nano::stat::detail nano::transport::message_deserializer::to_stat_detail (parse_status status)
+/*
+ *
+ */
+
+nano::stat::detail nano::transport::to_stat_detail (nano::transport::parse_status status)
 {
-	// Keep additional `break` for readability
-	switch (status)
-	{
-		case parse_status::none:
-		case parse_status::success:
-			break;
-		case parse_status::insufficient_work:
-			return stat::detail::insufficient_work;
-			break;
-		case parse_status::invalid_header:
-			return stat::detail::invalid_header;
-			break;
-		case parse_status::invalid_message_type:
-			return stat::detail::invalid_message_type;
-			break;
-		case parse_status::invalid_keepalive_message:
-			return stat::detail::invalid_keepalive_message;
-			break;
-		case parse_status::invalid_publish_message:
-			return stat::detail::invalid_publish_message;
-			break;
-		case parse_status::invalid_confirm_req_message:
-			return stat::detail::invalid_confirm_req_message;
-			break;
-		case parse_status::invalid_confirm_ack_message:
-			return stat::detail::invalid_confirm_ack_message;
-			break;
-		case parse_status::invalid_node_id_handshake_message:
-			return stat::detail::invalid_node_id_handshake_message;
-			break;
-		case parse_status::invalid_telemetry_req_message:
-			return stat::detail::invalid_telemetry_req_message;
-			break;
-		case parse_status::invalid_telemetry_ack_message:
-			return stat::detail::invalid_telemetry_ack_message;
-			break;
-		case parse_status::invalid_bulk_pull_message:
-			return stat::detail::invalid_bulk_pull_message;
-			break;
-		case parse_status::invalid_bulk_pull_account_message:
-			return stat::detail::invalid_bulk_pull_account_message;
-			break;
-		case parse_status::invalid_frontier_req_message:
-			return stat::detail::invalid_frontier_req_message;
-			break;
-		case parse_status::invalid_asc_pull_req_message:
-			return stat::detail::invalid_asc_pull_req_message;
-			break;
-		case parse_status::invalid_asc_pull_ack_message:
-			return stat::detail::invalid_asc_pull_ack_message;
-			break;
-		case parse_status::invalid_network:
-			return stat::detail::invalid_network;
-			break;
-		case parse_status::outdated_version:
-			return stat::detail::outdated_version;
-			break;
-		case parse_status::duplicate_publish_message:
-			return stat::detail::duplicate_publish;
-			break;
-		case parse_status::message_size_too_big:
-			return stat::detail::message_too_big;
-			break;
-	}
-	return {};
+	return nano::enum_util::cast<nano::stat::detail> (status);
 }
 
-std::string nano::transport::message_deserializer::to_string (parse_status status)
+std::string_view nano::transport::to_string (nano::transport::parse_status status)
 {
-	// Keep additional `break` for readability
-	switch (status)
-	{
-		case parse_status::none:
-			return "none";
-			break;
-		case parse_status::success:
-			return "success";
-			break;
-		case parse_status::insufficient_work:
-			return "insufficient_work";
-			break;
-		case parse_status::invalid_header:
-			return "invalid_header";
-			break;
-		case parse_status::invalid_message_type:
-			return "invalid_message_type";
-			break;
-		case parse_status::invalid_keepalive_message:
-			return "invalid_keepalive_message";
-			break;
-		case parse_status::invalid_publish_message:
-			return "invalid_publish_message";
-			break;
-		case parse_status::invalid_confirm_req_message:
-			return "invalid_confirm_req_message";
-			break;
-		case parse_status::invalid_confirm_ack_message:
-			return "invalid_confirm_ack_message";
-			break;
-		case parse_status::invalid_node_id_handshake_message:
-			return "invalid_node_id_handshake_message";
-			break;
-		case parse_status::invalid_telemetry_req_message:
-			return "invalid_telemetry_req_message";
-			break;
-		case parse_status::invalid_telemetry_ack_message:
-			return "invalid_telemetry_ack_message";
-			break;
-		case parse_status::invalid_bulk_pull_message:
-			return "invalid_bulk_pull_message";
-			break;
-		case parse_status::invalid_bulk_pull_account_message:
-			return "invalid_bulk_pull_account_message";
-			break;
-		case parse_status::invalid_frontier_req_message:
-			return "invalid_frontier_req_message";
-			break;
-		case parse_status::invalid_asc_pull_req_message:
-			return "invalid_asc_pull_req_message";
-			break;
-		case parse_status::invalid_asc_pull_ack_message:
-			return "invalid_asc_pull_ack_message";
-			break;
-		case parse_status::invalid_network:
-			return "invalid_network";
-			break;
-		case parse_status::outdated_version:
-			return "outdated_version";
-			break;
-		case parse_status::duplicate_publish_message:
-			return "duplicate_publish_message";
-			break;
-		case parse_status::message_size_too_big:
-			return "message_size_too_big";
-			break;
-	}
-	return "n/a";
+	return nano::enum_util::name (status);
 }

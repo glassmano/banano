@@ -1,4 +1,7 @@
-#include <nano/node/common.hpp>
+#pragma once
+
+#include <nano/node/endpoint.hpp>
+#include <nano/node/endpoint_templ.hpp>
 
 #include <boost/multi_index/hashed_index.hpp>
 #include <boost/multi_index/member.hpp>
@@ -50,9 +53,10 @@ public:
 	uint64_t score (nano::tcp_endpoint const &) const;
 	std::chrono::steady_clock::time_point until (nano::tcp_endpoint const &) const;
 	bool check (nano::tcp_endpoint const &) const;
+	bool check (boost::asio::ip::address const &) const;
 	void remove (nano::tcp_endpoint const &);
 	std::size_t size () const;
 
-	std::unique_ptr<container_info_component> collect_container_info (std::string const & name);
+	nano::container_info container_info () const;
 };
 }
