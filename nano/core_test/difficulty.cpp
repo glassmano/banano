@@ -1,8 +1,10 @@
+#include <nano/lib/block_type.hpp>
 #include <nano/lib/blocks.hpp>
 #include <nano/lib/config.hpp>
 #include <nano/lib/epoch.hpp>
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/work.hpp>
+#include <nano/lib/work_version.hpp>
 #include <nano/secure/common.hpp>
 #include <nano/test_common/testutil.hpp>
 
@@ -32,7 +34,7 @@ TEST (difficultyDeathTest, multipliers)
 	}
 
 	{
-		uint64_t base = std::numeric_limits<std::uint64_t>::max ();
+		constexpr uint64_t base = std::numeric_limits<std::uint64_t>::max ();
 		uint64_t difficulty = 0xffffffffffffff00;
 		double expected_multiplier = 0.00390625;
 
@@ -68,8 +70,8 @@ TEST (difficulty, overflow)
 {
 	// Overflow max (attempt to overflow & receive lower difficulty)
 	{
-		uint64_t base = std::numeric_limits<std::uint64_t>::max (); // Max possible difficulty
-		uint64_t difficulty = std::numeric_limits<std::uint64_t>::max ();
+		constexpr uint64_t base = std::numeric_limits<std::uint64_t>::max (); // Max possible difficulty
+		constexpr uint64_t difficulty = std::numeric_limits<std::uint64_t>::max ();
 		double multiplier = 1.001; // Try to increase difficulty above max
 
 		ASSERT_EQ (difficulty, nano::difficulty::from_multiplier (multiplier, base));
@@ -111,7 +113,7 @@ TEST (difficulty, network_constants)
 	auto & beta_thresholds = nano::work_thresholds::publish_beta;
 	auto & dev_thresholds = nano::work_thresholds::publish_dev;
 
-	ASSERT_NEAR (1e-10, nano::difficulty::to_multiplier (full_thresholds.epoch_2, full_thresholds.epoch_1), 1e-10);
+	ASSERT_NEAR (32, nano::difficulty::to_multiplier (full_thresholds.epoch_2, full_thresholds.epoch_1), 1e-10);
 	ASSERT_NEAR (1 / 8., nano::difficulty::to_multiplier (full_thresholds.epoch_2_receive, full_thresholds.epoch_1), 1e-10);
 	ASSERT_NEAR (1., nano::difficulty::to_multiplier (full_thresholds.epoch_2_receive, full_thresholds.entry), 1e-10);
 	ASSERT_NEAR (1., nano::difficulty::to_multiplier (full_thresholds.epoch_2, full_thresholds.base), 1e-10);

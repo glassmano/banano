@@ -2,9 +2,9 @@
 
 std::string convert_raw_to_dec (std::string amount_raw, nano::uint128_t ratio)
 {
-	std::string amount_in_dec = amount_raw; //initialize variable
-	int amount_length = amount_raw.length (); //count digits of input
-	int divider_length = ratio.convert_to<std::string> ().length (); //count digits of ratio divider
+	std::string amount_in_dec = amount_raw; // initialize variable
+	int amount_length = amount_raw.length (); // count digits of input
+	int divider_length = ratio.convert_to<std::string> ().length (); // count digits of ratio divider
 
 	if (divider_length > amount_length) // if amount is less than 1 whole unit of the desired output
 	{

@@ -1,14 +1,28 @@
-ARG ENV_REPOSITORY=nanocurrency/nano-env
-ARG COMPILER=gcc
-FROM ${ENV_REPOSITORY}:${COMPILER}
+FROM ubuntu:22.04 as builder
 
-ARG NETWORK=live
+ARG COMPILER=gcc
+ARG NANO_NETWORK=live
+
+# Install build dependencies
+COPY ./ci/prepare/linux /tmp/prepare
+RUN /tmp/prepare/prepare.sh
+
+COPY ./ /tmp/src
+WORKDIR /tmp/src
+
+#Define ARGs for ci/build-node.sh
+ARG BUILD_TYPE=RelWithDebInfo
+ARG NANO_TEST=OFF
+ARG COVERAGE=OFF
+ARG CMAKE_SANITIZER=""
 ARG CI_TAG=DEV_BUILD
 ARG CI_BUILD=OFF
 ARG CI_VERSION_PRE_RELEASE=OFF
 ADD ./ /tmp/src
 
-WORKDIR /tmp/build
+# Build node
+RUN ci/build-node.sh
+RUN echo ${NANO_NETWORK} >/etc/nano-network
 
 RUN \
 cmake /tmp/src \

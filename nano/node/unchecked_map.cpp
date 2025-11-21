@@ -1,21 +1,45 @@
+#include <nano/lib/blocks.hpp>
 #include <nano/lib/locks.hpp>
 #include <nano/lib/stats.hpp>
 #include <nano/lib/stats_enums.hpp>
-#include <nano/lib/threading.hpp>
+#include <nano/lib/thread_roles.hpp>
 #include <nano/lib/timer.hpp>
 #include <nano/node/unchecked_map.hpp>
 
-nano::unchecked_map::unchecked_map (nano::stats & stats, bool const & disable_delete) :
+nano::unchecked_map::unchecked_map (unsigned const max_unchecked_blocks, nano::stats & stats, bool const & disable_delete) :
+	max_unchecked_blocks{ max_unchecked_blocks },
 	stats{ stats },
-	disable_delete{ disable_delete },
-	thread{ [this] () { run (); } }
+	disable_delete{ disable_delete }
 {
 }
 
 nano::unchecked_map::~unchecked_map ()
 {
-	stop ();
-	thread.join ();
+	debug_assert (!thread.joinable ());
+}
+
+void nano::unchecked_map::start ()
+{
+	debug_assert (!thread.joinable ());
+
+	thread = std::thread ([this] () {
+		nano::thread_role::set (nano::thread_role::name::unchecked);
+		run ();
+	});
+}
+
+void nano::unchecked_map::stop ()
+{
+	{
+		nano::lock_guard<nano::mutex> lock{ mutex };
+		stopped = true;
+	}
+	condition.notify_all ();
+
+	if (thread.joinable ())
+	{
+		thread.join ();
+	}
 }
 
 void nano::unchecked_map::put (nano::hash_or_account const & dependency, nano::unchecked_info const & info)
@@ -23,10 +47,12 @@ void nano::unchecked_map::put (nano::hash_or_account const & dependency, nano::u
 	nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
 	nano::unchecked_key key{ dependency, info.block->hash () };
 	entries.get<tag_root> ().insert ({ key, info });
-	if (entries.size () > mem_block_count_max)
+
+	if (entries.size () > max_unchecked_blocks)
 	{
 		entries.get<tag_sequenced> ().pop_front ();
 	}
+
 	stats.inc (nano::stat::type::unchecked, nano::stat::detail::put);
 }
 
@@ -76,28 +102,21 @@ void nano::unchecked_map::clear ()
 	entries.clear ();
 }
 
-std::size_t nano::unchecked_map::count () const
+size_t nano::unchecked_map::entries_size () const
 {
 	nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
 	return entries.size ();
 }
 
-void nano::unchecked_map::stop ()
+size_t nano::unchecked_map::queries_size () const
 {
-	nano::unique_lock<nano::mutex> lock{ mutex };
-	if (!stopped)
-	{
-		stopped = true;
-		condition.notify_all (); // Notify flush (), run ()
-	}
+	nano::lock_guard<nano::mutex> lock{ mutex };
+	return buffer.size ();
 }
 
-void nano::unchecked_map::flush ()
+size_t nano::unchecked_map::count () const
 {
-	nano::unique_lock<nano::mutex> lock{ mutex };
-	condition.wait (lock, [this] () {
-		return stopped || (buffer.empty () && back_buffer.empty () && !writing_back_buffer);
-	});
+	return entries_size ();
 }
 
 void nano::unchecked_map::trigger (nano::hash_or_account const & dependency)
@@ -119,7 +138,6 @@ void nano::unchecked_map::process_queries (decltype (buffer) const & back_buffer
 
 void nano::unchecked_map::run ()
 {
-	nano::thread_role::set (nano::thread_role::name::unchecked);
 	nano::unique_lock<nano::mutex> lock{ mutex };
 	while (!stopped)
 	{
@@ -135,7 +153,6 @@ void nano::unchecked_map::run ()
 		}
 		else
 		{
-			condition.notify_all (); // Notify flush ()
 			condition.wait (lock, [this] () {
 				return stopped || !buffer.empty ();
 			});
@@ -160,12 +177,10 @@ void nano::unchecked_map::query_impl (nano::block_hash const & hash)
 	}
 }
 
-std::unique_ptr<nano::container_info_component> nano::unchecked_map::collect_container_info (const std::string & name)
+nano::container_info nano::unchecked_map::container_info () const
 {
-	nano::lock_guard<nano::mutex> lock{ mutex };
-
-	auto composite = std::make_unique<container_info_composite> (name);
-	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "entries", entries.size (), sizeof (decltype (entries)::value_type) }));
-	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "queries", buffer.size (), sizeof (decltype (buffer)::value_type) }));
-	return composite;
+	nano::container_info info;
+	info.put ("entries", entries_size ());
+	info.put ("queries", queries_size ());
+	return info;
 }

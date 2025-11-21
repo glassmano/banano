@@ -1,13 +1,7 @@
 add_executable(bananode daemon.cpp daemon.hpp entry.cpp)
 
-target_link_libraries(
-  bananode
-  Boost::process
-  node
-  rpc
-  secure
-  argon2
-  ${PLATFORM_LIBS})
+target_link_libraries(bananode node Boost::process ${PLATFORM_LIBS})
+
 include_directories(${CMAKE_SOURCE_DIR}/submodules)
 
 target_compile_definitions(
@@ -24,7 +18,9 @@ add_custom_command(
   COMMAND bananode --generate_config node >
           ${PROJECT_BINARY_DIR}/config-node.toml.sample
   COMMAND bananode --generate_config rpc >
-          ${PROJECT_BINARY_DIR}/config-rpc.toml.sample)
+          ${PROJECT_BINARY_DIR}/config-rpc.toml.sample
+  COMMAND bananode --generate_config log >
+          ${PROJECT_BINARY_DIR}/config-log.toml.sample)
 
 if((NANO_GUI OR RAIBLOCKS_GUI) AND NOT APPLE)
   if(WIN32)
