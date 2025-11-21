@@ -469,7 +469,7 @@ TEST (toml_config, daemon_config_deserialize_no_defaults)
 	peering_port = 999
 	pow_sleep_interval= 999
 	preconfigured_peers = ["dev.org"]
-	preconfigured_representatives = ["nano_3arg3asgtigae3xckabaaewkx3bzsh7nwz7jkmjos79ihyaxwphhm6qgjps4"]
+	preconfigured_representatives = ["ban_3arg3asgtigae3xckabaaewkx3bzsh7nwz7jkmjos79ihyaxwphhm6qgjps4"]
 	receive_minimum = "999"
 	signature_checker_threads = 999
 	tcp_io_timeout = 999
