@@ -2893,9 +2893,9 @@ TEST (rpc, accounts_balances_with_errors)
 	request.put ("action", "accounts_balances");
 	boost::property_tree::ptree accounts_l;
 
-	// Adds a bad account string for getting an error response (the nano_ address checksum is wrong)
+	// Adds a bad account string for getting an error response (the ban_ address checksum is wrong)
 	boost::property_tree::ptree entry;
-	auto const bad_account_number = "nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1";
+	auto const bad_account_number = "ban_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1";
 	entry.put ("", bad_account_number);
 	accounts_l.push_back (std::make_pair ("", entry));
 
