@@ -36,7 +36,7 @@ public:
 	{
 		logger.critical (nano::log::type::daemon, "{}", message_a);
 
-		QMessageBox message (QMessageBox::Critical, "Error starting Nano", message_a.c_str ());
+		QMessageBox message (QMessageBox::Critical, "Error starting Banano", message_a.c_str ());
 		message.setModal (true);
 		message.show ();
 		message.exec ();

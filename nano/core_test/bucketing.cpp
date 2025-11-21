@@ -25,13 +25,13 @@ TEST (bucketing, raw_index)
 TEST (bucketing, nano_index)
 {
 	nano::bucketing bucketing;
-	ASSERT_EQ (14, bucketing.bucket_index (nano::BAN_ratio));
+	ASSERT_EQ (8, bucketing.bucket_index (nano::BAN_ratio));
 }
 
 TEST (bucketing, Knano_index)
 {
 	nano::bucketing bucketing;
-	ASSERT_EQ (49, bucketing.bucket_index (nano::MBAN_ratio));
+	ASSERT_EQ (60, bucketing.bucket_index (nano::MBAN_ratio));
 }
 
 TEST (bucketing, max_index)

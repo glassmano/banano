@@ -22,7 +22,7 @@ test_cmd() {
     $NANO_NODE_EXE --debug_block_dump --data_path "$DATADIR" "$netcmd" "$netarg" | head -n 1 | grep -qi "$genesishash"
 }
 
-test_cmd "live" "--network" "live" "991CF190094C00F0B68E2E5F75F6BEE95A2E0BD93CEAA4A6734DB9F19B728948"
+test_cmd "live" "--network" "live" "F61A79F286ABC5CC01D3D09686F0567812B889A5C63ADE0E82DD30F3B2D96463"
 test_cmd "beta" "--network" "beta" "E1227CF974C1455A8B630433D94F3DDBF495EEAC9ADD2481A4A1D90A0D00F488"
 test_cmd "test" "--network" "test" "B1D60C0B886B57401EF5A1DAA04340E53726AA6F4D706C085706F31BBD100CEE"
 

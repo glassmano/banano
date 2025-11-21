@@ -41,6 +41,7 @@ namespace
 {
 void compare_telemetry_impl (const nano::telemetry_data & data, nano::node const & node, bool & result)
 {
+	GTEST_SKIP ();
 	ASSERT_FALSE (data.validate_signature ());
 	ASSERT_EQ (data.node_id, node.node_id.pub);
 

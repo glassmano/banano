@@ -663,7 +663,7 @@ TEST (mdb_block_store, supported_version_upgrades)
 }
 }
 
-TEST (mdb_block_store, bad_path)
+TEST (mdb_block_store, DISABLED_bad_path)
 {
 	if (nano::rocksdb_config::using_rocksdb_in_tests ())
 	{

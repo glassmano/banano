@@ -161,19 +161,21 @@ set_property(
                                 banano_live_network banano_test_network)
 
 # Validate ACTIVE_NETWORK value
-set(VALID_NETWORKS "banano_dev_network;banano_beta_network;banano_live_network;banano_test_network")
+set(VALID_NETWORKS
+    "banano_dev_network;banano_beta_network;banano_live_network;banano_test_network"
+)
 if(NOT ACTIVE_NETWORK IN_LIST VALID_NETWORKS)
-  message(FATAL_ERROR
-    "Invalid ACTIVE_NETWORK value: '${ACTIVE_NETWORK}'\n"
-    "Valid options are:\n"
-    "  - banano_dev_network   (Development network with low work parameters)\n"
-    "  - banano_beta_network  (Beta network for testing)\n"
-    "  - banano_live_network  (Live production network - default)\n"
-    "  - banano_test_network  (Test network)\n"
-    "\n"
-    "Example usage:\n"
-    "  cmake -DACTIVE_NETWORK=banano_test_network ."
-  )
+  message(
+    FATAL_ERROR
+      "Invalid ACTIVE_NETWORK value: '${ACTIVE_NETWORK}'\n"
+      "Valid options are:\n"
+      "  - banano_dev_network   (Development network with low work parameters)\n"
+      "  - banano_beta_network  (Beta network for testing)\n"
+      "  - banano_live_network  (Live production network - default)\n"
+      "  - banano_test_network  (Test network)\n"
+      "\n"
+      "Example usage:\n"
+      "  cmake -DACTIVE_NETWORK=banano_test_network .")
 endif()
 
 set(CPACK_PACKAGE_NAME
@@ -844,7 +846,7 @@ if(NANO_GUI OR RAIBLOCKS_GUI)
   if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     set(PLATFORM_WALLET_SOURCE nano/nano_wallet/plat/default/icon.cpp)
   elseif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-    set(PLATFORM_WALLET_SOURCE nano/nano_wallet/plat/windows/icon.cpp Nano.rc)
+    set(PLATFORM_WALLET_SOURCE nano/nano_wallet/plat/windows/icon.cpp Banano.rc)
   elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     set(PLATFORM_WALLET_SOURCE nano/nano_wallet/plat/default/icon.cpp)
   elseif(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
@@ -915,7 +917,7 @@ if(NANO_GUI OR RAIBLOCKS_GUI)
             DESTINATION ${NANO_OSX_PACKAGE_NAME}.app/Contents/Frameworks)
     install(FILES "${Qt5_DIR}/../../../plugins/platforms/libqcocoa.dylib"
             DESTINATION ${NANO_OSX_PACKAGE_NAME}.app/Contents/PlugIns/platforms)
-    install(FILES Nano.icns
+    install(FILES Banano.icns
             DESTINATION ${NANO_OSX_PACKAGE_NAME}.app/Contents/Resources)
   elseif(WIN32)
     if("${CMAKE_SIZEOF_VOID_P}" EQUAL "8")
@@ -925,18 +927,18 @@ if(NANO_GUI OR RAIBLOCKS_GUI)
     endif()
     set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
         "ExecWait '\\\"$INSTDIR\\\\${WIN_REDIST}\\\" /quiet /norestart'
-												WriteRegDWORD HKLM 'SYSTEM\\\\CurrentControlSet\\\\Services\\\\EventLog\\\\Nano\\\\Nano${NANO_PREFIX}' 'TypesSupported' '0x7'
-												WriteRegStr HKLM 'SYSTEM\\\\CurrentControlSet\\\\Services\\\\EventLog\\\\Nano\\\\Nano${NANO_PREFIX}' 'EventMessageFile' '$INSTDIR\\\\nano_wallet.exe'"
+												WriteRegDWORD HKLM 'SYSTEM\\\\CurrentControlSet\\\\Services\\\\EventLog\\\\Banano\\\\Banano${NANO_PREFIX}' 'TypesSupported' '0x7'
+												WriteRegStr HKLM 'SYSTEM\\\\CurrentControlSet\\\\Services\\\\EventLog\\\\Banano\\\\Banano${NANO_PREFIX}' 'EventMessageFile' '$INSTDIR\\\\nano_wallet.exe'"
     )
     set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS
-        "DeleteRegKey HKLM 'SYSTEM\\\\CurrentControlSet\\\\Services\\\\EventLog\\\\Nano${NANO_PREFIX}'"
+        "DeleteRegKey HKLM 'SYSTEM\\\\CurrentControlSet\\\\Services\\\\EventLog\\\\Banano${NANO_PREFIX}'"
     )
-    set(CPACK_NSIS_MUI_ICON ${CMAKE_SOURCE_DIR}/Nano.ico)
-    set(CPACK_NSIS_DISPLAY_NAME "Nano${NANO_PREFIX}")
+    set(CPACK_NSIS_MUI_ICON ${CMAKE_SOURCE_DIR}/Banano.ico)
+    set(CPACK_NSIS_DISPLAY_NAME "Banano${NANO_PREFIX}")
     set(CPACK_NSIS_URL_INFO_ABOUT "https://nano.org")
     set(CPACK_NSIS_CONTACT "info@nano.org")
-    set(CPACK_NSIS_MENU_LINKS "nano_wallet.exe" "Nano Wallet"
-                              "https://nano.org" "Nano website")
+    set(CPACK_NSIS_MENU_LINKS "nano_wallet.exe" "Banano Wallet"
+                              "https://nano.org" "Banano website")
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     get_target_property(Qt5WindowsPlugin Qt5::QWindowsIntegrationPlugin
                         LOCATION)
