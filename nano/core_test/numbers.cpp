@@ -503,8 +503,8 @@ TEST (uint256_union, big_endian_union_function)
 TEST (uint256_union, decode_nano_variant)
 {
 	nano::account key;
-	ASSERT_FALSE (key.decode_account ("xrb_1111111111111111111111111111111111111111111111111111hifc8npp"));
-	ASSERT_FALSE (key.decode_account ("nano_1111111111111111111111111111111111111111111111111111hifc8npp"));
+	ASSERT_FALSE (key.decode_account ("ban_1111111111111111111111111111111111111111111111111111hifc8npp"));
+	ASSERT_FALSE (key.decode_account ("ban_1111111111111111111111111111111111111111111111111111hifc8npp"));
 }
 
 /**
@@ -516,7 +516,7 @@ TEST (uint256_union, key_is_not_updated_on_checksum_error)
 {
 	nano::account key;
 	ASSERT_EQ (key, 0);
-	bool result = key.decode_account ("nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1");
+	bool result = key.decode_account ("ban_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtd1");
 	ASSERT_EQ (key, 0);
 	ASSERT_TRUE (result);
 }
@@ -530,7 +530,7 @@ TEST (uint256_union, account_transcode)
 
 	/*
 	 * Handle different offsets for the underscore separator
-	 * for "xrb_" prefixed and "nano_" prefixed accounts
+	 * for "ban_" prefixed and "ban_" prefixed accounts
 	 */
 	unsigned offset = (text.front () == 'x') ? 3 : 4;
 	ASSERT_EQ ('_', text[offset]);
@@ -548,7 +548,7 @@ TEST (uint256_union, account_encode_lex)
 	auto max_text (max.to_account ());
 
 	/*
-	 * Handle different lengths for "xrb_" prefixed and "nano_" prefixed accounts
+	 * Handle different lengths for "ban_" prefixed and "ban_" prefixed accounts
 	 */
 	unsigned length = (min_text.front () == 'x') ? 64 : 65;
 	ASSERT_EQ (length, min_text.size ());
@@ -809,7 +809,7 @@ TEST (account, encode_zero)
 	auto str0 = stream.str ();
 
 	/*
-	 * Handle different lengths for "xrb_" prefixed and "nano_" prefixed accounts
+	 * Handle different lengths for "ban_" prefixed and "ban_" prefixed accounts
 	 */
 	ASSERT_EQ ((str0.front () == 'x') ? 64 : 65, str0.size ());
 	ASSERT_EQ (65, str0.size ());
@@ -827,7 +827,7 @@ TEST (account, encode_all)
 	auto str0 = stream.str ();
 
 	/*
-	 * Handle different lengths for "xrb_" prefixed and "nano_" prefixed accounts
+	 * Handle different lengths for "ban_" prefixed and "ban_" prefixed accounts
 	 */
 	ASSERT_EQ ((str0.front () == 'x') ? 64 : 65, str0.size ());
 	nano::account number1;
@@ -849,17 +849,17 @@ TEST (account, encode_fail)
 TEST (account, known_addresses)
 {
 	nano::account account1{ "0000000000000000000000000000000000000000000000000000000000000000" };
-	ASSERT_EQ (account1.to_account (), "nano_1111111111111111111111111111111111111111111111111111hifc8npp");
+	ASSERT_EQ (account1.to_account (), "ban_1111111111111111111111111111111111111111111111111111hifc8npp");
 
 	nano::account account2{ "B0311EA55708D6A53C75CDBF88300259C6D018522FE3D4D0A242E431F9E8B6D0" };
-	ASSERT_EQ (account2.to_account (), "nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo");
+	ASSERT_EQ (account2.to_account (), "ban_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo");
 
 	nano::account account3{ "45C6FF9D1706D61F0821327752671BDA9F9ED2DA40326B01935AB566FB9E08ED" };
-	ASSERT_EQ (account3.to_account (), "nano_1jg8zygjg3pp5w644emqcbmjqpnzmubfni3kfe1s8pooeuxsw49fdq1mco9j");
+	ASSERT_EQ (account3.to_account (), "ban_1jg8zygjg3pp5w644emqcbmjqpnzmubfni3kfe1s8pooeuxsw49fdq1mco9j");
 
 	nano::account account4{ "E89208DD038FBB269987689621D52292AE9C35941A7484756ECCED92A65093BA" };
-	ASSERT_EQ (account4.to_account (), "nano_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3");
+	ASSERT_EQ (account4.to_account (), "ban_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3");
 
 	nano::account account5{ "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF" };
-	ASSERT_EQ (account5.to_account (), "nano_3zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzc3yoon41");
+	ASSERT_EQ (account5.to_account (), "ban_3zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzc3yoon41");
 }
