@@ -244,7 +244,7 @@ TEST (websocket, confirmation_options)
 	std::atomic<bool> ack_ready{ false };
 	auto task1 = ([&ack_ready, config, &node1] () {
 		fake_websocket_client client (node1->websocket.server->listening_port ());
-		client.send_message (R"json({"action": "subscribe", "topic": "confirmation", "ack": "true", "options": {"confirmation_type": "active_quorum", "accounts": ["xrb_invalid"]}})json");
+		client.send_message (R"json({"action": "subscribe", "topic": "confirmation", "ack": "true", "options": {"confirmation_type": "active_quorum", "accounts": ["ban_invalid"]}})json");
 		client.await_ack ();
 		ack_ready = true;
 		EXPECT_EQ (1, node1->websocket.server->subscriber_count (nano::websocket::topic::confirmation));
@@ -925,7 +925,7 @@ TEST (websocket, vote_options_representatives)
 	ack_ready = false;
 	auto task2 = ([&ack_ready, config, &node1] () {
 		fake_websocket_client client (node1->websocket.server->listening_port ());
-		client.send_message (R"json({"action": "subscribe", "topic": "vote", "ack": "true", "options": {"representatives": ["xrb_invalid"]}})json");
+		client.send_message (R"json({"action": "subscribe", "topic": "vote", "ack": "true", "options": {"representatives": ["ban_invalid"]}})json");
 		client.await_ack ();
 		ack_ready = true;
 		EXPECT_EQ (1, node1->websocket.server->subscriber_count (nano::websocket::topic::vote));
