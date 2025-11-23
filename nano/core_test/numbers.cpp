@@ -258,11 +258,11 @@ TEST (uint128_union, balance_format)
 {
 	ASSERT_EQ ("0", nano::amount (nano::uint128_t ("0")).format_balance (nano::BAN_ratio, 0, false));
 	ASSERT_EQ ("0", nano::amount (nano::uint128_t ("0")).format_balance (nano::BAN_ratio, 2, true));
-	ASSERT_EQ ("340,282,366", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")).format_balance (nano::BAN_ratio, 0, true));
-	ASSERT_EQ ("340,282,366.920938463463374607431768211455", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")).format_balance (nano::BAN_ratio, 64, true));
-	ASSERT_EQ ("340,282,366,920,938,463,463,374,607,431,768,211,455", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")).format_balance (1, 4, true));
-	ASSERT_EQ ("340,282,366", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE")).format_balance (nano::BAN_ratio, 0, true));
-	ASSERT_EQ ("340,282,366.920938463463374607431768211454", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE")).format_balance (nano::BAN_ratio, 64, true));
+	ASSERT_EQ ("3,402,823,669", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")).format_balance (nano::BAN_ratio, 0, true));
+	ASSERT_EQ ("3,402,823,669.20938463463374607431768211455", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")).format_balance (nano::BAN_ratio, 64, true));
+	ASSERT_EQ ("3,402,823,669,209,384,634,633,746,074,317,682,114,55", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")).format_balance (1, 4, true));
+	ASSERT_EQ ("3,402,823,66", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE")).format_balance (nano::BAN_ratio, 0, true));
+	ASSERT_EQ ("3,402,823,669.20938463463374607431768211454", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE")).format_balance (nano::BAN_ratio, 64, true));
 	ASSERT_EQ ("340282366920938463463374607431768211454", nano::amount (nano::uint128_t ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE")).format_balance (1, 4, false));
 	ASSERT_EQ ("170,141,183", nano::amount (nano::uint128_t ("0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE")).format_balance (nano::BAN_ratio, 0, true));
 	ASSERT_EQ ("170,141,183.460469231731687303715884105726", nano::amount (nano::uint128_t ("0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE")).format_balance (nano::BAN_ratio, 64, true));
@@ -286,10 +286,10 @@ TEST (uint128_union, decode_decimal)
 	ASSERT_TRUE (amount.decode_dec ("0.1", nano::RAW_ratio));
 	ASSERT_FALSE (amount.decode_dec ("1", nano::RAW_ratio));
 	ASSERT_EQ (1, amount.number ());
-	ASSERT_FALSE (amount.decode_dec ("340282366.920938463463374607431768211454", nano::BAN_ratio));
+	ASSERT_FALSE (amount.decode_dec ("3402823669.20938463463374607431768211454", nano::BAN_ratio));
 	ASSERT_EQ (std::numeric_limits<nano::uint128_t>::max () - 1, amount.number ());
-	ASSERT_TRUE (amount.decode_dec ("340282366.920938463463374607431768211456", nano::BAN_ratio));
-	ASSERT_TRUE (amount.decode_dec ("340282367", nano::BAN_ratio));
+	ASSERT_TRUE (amount.decode_dec ("3402823669.20938463463374607431768211456", nano::BAN_ratio));
+	ASSERT_TRUE (amount.decode_dec ("3402823669", nano::BAN_ratio));
 	ASSERT_FALSE (amount.decode_dec ("0.000000000000000000000001", nano::BAN_ratio));
 	ASSERT_EQ (1000000, amount.number ());
 	ASSERT_FALSE (amount.decode_dec ("0.000000000000000000000000000001", nano::BAN_ratio));
@@ -532,7 +532,7 @@ TEST (uint256_union, account_transcode)
 	 * Handle different offsets for the underscore separator
 	 * for "ban_" prefixed and "ban_" prefixed accounts
 	 */
-	unsigned offset = (text.front () == 'x') ? 3 : 4;
+	unsigned offset = 3;
 	ASSERT_EQ ('_', text[offset]);
 	text[offset] = '-';
 	nano::account value2;
@@ -548,9 +548,9 @@ TEST (uint256_union, account_encode_lex)
 	auto max_text (max.to_account ());
 
 	/*
-	 * Handle different lengths for "ban_" prefixed and "ban_" prefixed accounts
+	 * Handle  "ban_" prefixed accounts
 	 */
-	unsigned length = (min_text.front () == 'x') ? 64 : 65;
+	unsigned length = 64;
 	ASSERT_EQ (length, min_text.size ());
 	ASSERT_EQ (length, max_text.size ());
 
@@ -809,10 +809,9 @@ TEST (account, encode_zero)
 	auto str0 = stream.str ();
 
 	/*
-	 * Handle different lengths for "ban_" prefixed and "ban_" prefixed accounts
+	 * Handle "ban_" prefixed accounts
 	 */
-	ASSERT_EQ ((str0.front () == 'x') ? 64 : 65, str0.size ());
-	ASSERT_EQ (65, str0.size ());
+	ASSERT_EQ (64, str0.size ());
 	nano::account number1;
 	ASSERT_FALSE (number1.decode_account (str0));
 	ASSERT_EQ (number0, number1);
@@ -829,7 +828,7 @@ TEST (account, encode_all)
 	/*
 	 * Handle different lengths for "ban_" prefixed and "ban_" prefixed accounts
 	 */
-	ASSERT_EQ ((str0.front () == 'x') ? 64 : 65, str0.size ());
+	ASSERT_EQ (64, str0.size ());
 	nano::account number1;
 	ASSERT_FALSE (number1.decode_account (str0));
 	ASSERT_EQ (number0, number1);
