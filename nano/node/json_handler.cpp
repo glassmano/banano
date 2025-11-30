@@ -122,11 +122,11 @@ void nano::json_handler::process_request (bool unsafe_a)
 			}
 			else if (action == "raw_from_raw")
 			{
-				mnano_from_raw (nano::RAW_ratio);
+				mnano_from_raw (nano::nano_ratio);
 			}
 			else if (action == "raw_to_raw")
 			{
-				mnano_to_raw (nano::RAW_ratio);
+				mnano_to_raw (nano::nano_ratio);
 			}
 			else if (action == "mnano_from_raw" || action == "ban_from_raw")
 			{
