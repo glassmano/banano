@@ -300,7 +300,7 @@ TEST (wallet, send)
 	auto account (nano::dev::genesis_key.pub);
 	auto wallet (std::make_shared<nano_qt::wallet> (*test_application, processor, *system.nodes[0], system.wallet (0), account));
 	wallet->start ();
-	ASSERT_NE (wallet->rendering_ratio, nano::RAW_ratio);
+	ASSERT_NE (wallet->rendering_ratio, nano::raw_ratio);
 	QTest::mouseClick (wallet->send_blocks, Qt::LeftButton);
 	QTest::keyClicks (wallet->send_account, key1.to_account ().c_str ());
 	QTest::keyClicks (wallet->send_count, "2.03");
@@ -579,8 +579,8 @@ TEST (history, pruned_source)
 		next_pruning = send2->hash ();
 	}
 	// Set rendering ration to raw units
-	ASSERT_NE (wallet->rendering_ratio, nano::RAW_ratio);
-	wallet->rendering_ratio = nano::RAW_ratio;
+	ASSERT_NE (wallet->rendering_ratio, nano::raw_ratio);
+	wallet->rendering_ratio = nano::raw_ratio;
 	// Genesis account pruned values
 	nano_qt::history history1 (ledger, nano::dev::genesis_key.pub, *wallet);
 	history1.refresh ();
