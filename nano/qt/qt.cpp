@@ -1068,7 +1068,7 @@ std::string nano_qt::status::color ()
 }
 
 nano_qt::wallet::wallet (QApplication & application_a, nano_qt::eventloop_processor & processor_a, nano::node & node_a, std::shared_ptr<nano::wallet> const & wallet_a, nano::account & account_a) :
-	rendering_ratio (nano::BAN_ratio),
+	rendering_ratio (nano::nano_ratio),
 	node (node_a),
 	wallet_m (wallet_a),
 	account (account_a),
@@ -1502,7 +1502,7 @@ std::string nano_qt::wallet::format_balance (nano::uint128_t const & balance) co
 {
 	auto balance_str = nano::amount (balance).format_balance (rendering_ratio, 3, false);
 	auto unit = std::string ("nano");
-	if (rendering_ratio == nano::RAW_ratio)
+	if (rendering_ratio == nano::raw_ratio)
 	{
 		unit = std::string ("raw");
 	}
@@ -1867,14 +1867,14 @@ nano_qt::advanced_actions::advanced_actions (nano_qt::wallet & wallet_a) :
 	QObject::connect (nano_unit, &QRadioButton::toggled, [this] () {
 		if (nano_unit->isChecked ())
 		{
-			this->wallet.change_rendering_ratio (nano::BAN_ratio);
+			this->wallet.change_rendering_ratio (nano::nano_ratio);
 			QSettings ().setValue (saved_ratio_key, ratio_group->id (nano_unit));
 		}
 	});
 	QObject::connect (raw_unit, &QRadioButton::toggled, [this] () {
 		if (raw_unit->isChecked ())
 		{
-			this->wallet.change_rendering_ratio (nano::RAW_ratio);
+			this->wallet.change_rendering_ratio (nano::raw_ratio);
 			QSettings ().setValue (saved_ratio_key, ratio_group->id (raw_unit));
 		}
 	});
