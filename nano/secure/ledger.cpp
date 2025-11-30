@@ -946,12 +946,12 @@ void nano::ledger::initialize (nano::generate_cache_flags const & generate_cache
 	logger.info (nano::log::type::ledger, "Pruned count:   {:>11}", cache.pruned_count.load ());
 	logger.info (nano::log::type::ledger, "Representative count: {:>5}", rep_weights.size ());
 	logger.info (nano::log::type::ledger, "Active balance: {} | pending: {} | burned: {}",
-	nano::uint128_union{ static_cast<nano::uint128_t> (active_balance) }.format_balance (nano::BAN_ratio, 0, true),
-	nano::uint128_union{ static_cast<nano::uint128_t> (pending_balance) }.format_balance (nano::BAN_ratio, 0, true),
-	nano::uint128_union{ static_cast<nano::uint128_t> (burned_balance) }.format_balance (nano::BAN_ratio, 0, true));
+	nano::uint128_union{ static_cast<nano::uint128_t> (active_balance) }.format_balance (nano::nano_ratio, 0, true),
+	nano::uint128_union{ static_cast<nano::uint128_t> (pending_balance) }.format_balance (nano::nano_ratio, 0, true),
+	nano::uint128_union{ static_cast<nano::uint128_t> (burned_balance) }.format_balance (nano::nano_ratio, 0, true));
 	logger.info (nano::log::type::ledger, "Weight committed: {} | unused: {}",
-	nano::uint128_union{ rep_weights.get_weight_committed () }.format_balance (nano::BAN_ratio, 0, true),
-	nano::uint128_union{ rep_weights.get_weight_unused () }.format_balance (nano::BAN_ratio, 0, true));
+	nano::uint128_union{ rep_weights.get_weight_committed () }.format_balance (nano::nano_ratio, 0, true),
+	nano::uint128_union{ rep_weights.get_weight_unused () }.format_balance (nano::nano_ratio, 0, true));
 }
 
 void nano::ledger::verify_consistency (secure::transaction const & transaction) const
