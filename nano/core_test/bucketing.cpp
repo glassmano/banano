@@ -19,19 +19,19 @@ TEST (bucketing, zero_index)
 TEST (bucketing, raw_index)
 {
 	nano::bucketing bucketing;
-	ASSERT_EQ (0, bucketing.bucket_index (nano::RAW_ratio));
+	ASSERT_EQ (0, bucketing.bucket_index (nano::raw_ratio));
 }
 
 TEST (bucketing, nano_index)
 {
 	nano::bucketing bucketing;
-	ASSERT_EQ (8, bucketing.bucket_index (nano::BAN_ratio));
+	ASSERT_EQ (8, bucketing.bucket_index (nano::nano_ratio));
 }
 
 TEST (bucketing, Knano_index)
 {
 	nano::bucketing bucketing;
-	ASSERT_EQ (60, bucketing.bucket_index (nano::MBAN_ratio));
+	ASSERT_EQ (60, bucketing.bucket_index (nano::Knano_ratio));
 }
 
 TEST (bucketing, max_index)

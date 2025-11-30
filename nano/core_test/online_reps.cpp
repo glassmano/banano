@@ -59,7 +59,7 @@ TEST (online_reps, election)
 				 .account (nano::dev::genesis_key.pub)
 				 .previous (nano::dev::genesis->hash ())
 				 .representative (nano::dev::genesis_key.pub)
-				 .balance (nano::dev::constants.genesis_amount - nano::MBAN_ratio)
+				 .balance (nano::dev::constants.genesis_amount - nano::Knano_ratio)
 				 .link (key.pub)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*node1.work_generate_blocking (nano::dev::genesis->hash ()))
@@ -70,7 +70,7 @@ TEST (online_reps, election)
 	auto vote = std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, nano::milliseconds_since_epoch (), 0, std::vector<nano::block_hash>{ send1->hash () });
 	ASSERT_EQ (0, node1.online_reps.online ());
 	node1.vote_processor.vote_blocking (vote, std::make_shared<nano::transport::fake::channel> (node1));
-	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::MBAN_ratio, node1.online_reps.online ());
+	ASSERT_EQ (nano::dev::constants.genesis_amount - nano::Knano_ratio, node1.online_reps.online ());
 }
 
 // Online reps should be able to observe remote representative
@@ -98,9 +98,9 @@ TEST (online_reps, observe_multiple)
 	auto & node_rep1 = *system.add_node (); // key1
 	auto & node_rep2 = *system.add_node (); // key2 & key3
 
-	auto const weight_1 = nano::BAN_ratio * 1000;
-	auto const weight_2 = nano::BAN_ratio * 1000000;
-	auto const weight_3 = nano::BAN_ratio * 10000000;
+	auto const weight_1 = nano::nano_ratio * 1000;
+	auto const weight_2 = nano::nano_ratio * 1000000;
+	auto const weight_3 = nano::nano_ratio * 10000000;
 
 	nano::keypair key1, key2, key3;
 
@@ -194,7 +194,7 @@ TEST (online_reps, observe_slow)
 	ASSERT_EQ (0, node.online_reps.online ());
 
 	// Enough to reach quorum by a single vote
-	auto const weight = nano::BAN_ratio * 80000000;
+	auto const weight = nano::nano_ratio * 80000000;
 
 	nano::keypair key1, key2; // Fast and slow reps
 
@@ -246,7 +246,7 @@ TEST (online_reps, observe_slow)
 					  .account (nano::dev::genesis_key.pub)
 					  .previous (send2->hash ())
 					  .representative (nano::dev::genesis_key.pub)
-					  .balance (nano::dev::constants.genesis_amount - weight * 2 - nano::BAN_ratio)
+					  .balance (nano::dev::constants.genesis_amount - weight * 2 - nano::nano_ratio)
 					  .link (nano::keypair{}.pub)
 					  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 					  .work (*system.work.generate (send2->hash ()))
@@ -283,8 +283,8 @@ TEST (online_reps, weight_change_recalculation)
 	ASSERT_EQ (0, node.online_reps.online ());
 
 	nano::keypair key1, key2;
-	auto const initial_weight = nano::BAN_ratio * 1000;
-	auto const additional_weight = nano::BAN_ratio * 2000;
+	auto const initial_weight = nano::nano_ratio * 1000;
+	auto const additional_weight = nano::nano_ratio * 2000;
 
 	// Create initial distribution
 	nano::block_builder builder;

@@ -24,7 +24,7 @@ TEST (fork_cache, one)
 	nano::fork_cache_config cfg;
 	nano::fork_cache fork_cache{ cfg, system.stats };
 
-	auto block = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::Knano_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
 	nano::qualified_root root = block->qualified_root ();
 
 	fork_cache.put (block);
@@ -46,9 +46,9 @@ TEST (fork_cache, multiple_forks)
 	nano::fork_cache fork_cache{ cfg, system.stats };
 
 	// Create several blocks with the same qualified root (same previous and account)
-	auto block1 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
-	auto block2 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio * 2, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
-	auto block3 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio * 3, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block1 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::Knano_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block2 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::Knano_ratio * 2, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block3 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::Knano_ratio * 3, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
 
 	nano::qualified_root root = block1->qualified_root ();
 	ASSERT_EQ (root, block2->qualified_root ());
@@ -80,13 +80,13 @@ TEST (fork_cache, multiple_roots)
 	nano::fork_cache fork_cache{ cfg, system.stats };
 
 	// Create blocks with different roots
-	auto block1 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::test::random_hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block1 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::test::random_hash (), nano::dev::genesis_key.pub, nano::Knano_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
 
 	nano::keypair key2;
-	auto block2 = std::make_shared<nano::state_block> (key2.pub, nano::test::random_hash (), key2.pub, nano::MBAN_ratio, nano::test::random_hash (), key2.prv, key2.pub, 0);
+	auto block2 = std::make_shared<nano::state_block> (key2.pub, nano::test::random_hash (), key2.pub, nano::Knano_ratio, nano::test::random_hash (), key2.prv, key2.pub, 0);
 
 	nano::keypair key3;
-	auto block3 = std::make_shared<nano::state_block> (key3.pub, nano::test::random_hash (), key3.pub, nano::MBAN_ratio, nano::test::random_hash (), key3.prv, key3.pub, 0);
+	auto block3 = std::make_shared<nano::state_block> (key3.pub, nano::test::random_hash (), key3.pub, nano::Knano_ratio, nano::test::random_hash (), key3.prv, key3.pub, 0);
 
 	nano::qualified_root root1 = block1->qualified_root ();
 	nano::qualified_root root2 = block2->qualified_root ();
@@ -128,7 +128,7 @@ TEST (fork_cache, duplicate_block)
 	nano::fork_cache_config cfg;
 	nano::fork_cache fork_cache{ cfg, system.stats };
 
-	auto block = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::Knano_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
 	nano::qualified_root root = block->qualified_root ();
 
 	// Insert the same block twice
@@ -159,9 +159,9 @@ TEST (fork_cache, overfill_per_root)
 	nano::fork_cache fork_cache{ cfg, system.stats };
 
 	// Create several blocks with the same qualified root
-	auto block1 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
-	auto block2 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio * 2, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
-	auto block3 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio * 3, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block1 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::Knano_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block2 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::Knano_ratio * 2, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block3 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::dev::genesis->hash (), nano::dev::genesis_key.pub, nano::Knano_ratio * 3, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
 
 	nano::qualified_root root = block1->qualified_root ();
 
@@ -191,13 +191,13 @@ TEST (fork_cache, overfill_total)
 	nano::fork_cache fork_cache{ cfg, system.stats };
 
 	// Create blocks with different roots
-	auto block1 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::test::random_hash (), nano::dev::genesis_key.pub, nano::MBAN_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block1 = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, nano::test::random_hash (), nano::dev::genesis_key.pub, nano::Knano_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
 
 	nano::keypair key2;
-	auto block2 = std::make_shared<nano::state_block> (key2.pub, nano::test::random_hash (), key2.pub, nano::MBAN_ratio, nano::test::random_hash (), key2.prv, key2.pub, 0);
+	auto block2 = std::make_shared<nano::state_block> (key2.pub, nano::test::random_hash (), key2.pub, nano::Knano_ratio, nano::test::random_hash (), key2.prv, key2.pub, 0);
 
 	nano::keypair key3;
-	auto block3 = std::make_shared<nano::state_block> (key3.pub, nano::test::random_hash (), key3.pub, nano::MBAN_ratio, nano::test::random_hash (), key3.prv, key3.pub, 0);
+	auto block3 = std::make_shared<nano::state_block> (key3.pub, nano::test::random_hash (), key3.pub, nano::Knano_ratio, nano::test::random_hash (), key3.prv, key3.pub, 0);
 
 	nano::qualified_root root1 = block1->qualified_root ();
 	nano::qualified_root root2 = block2->qualified_root ();
@@ -234,24 +234,24 @@ TEST (fork_cache, complex_scenario)
 
 	// Create multiple blocks for first root
 	auto const previous1 = nano::test::random_hash ();
-	auto block1a = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, previous1, nano::dev::genesis_key.pub, nano::MBAN_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
-	auto block1b = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, previous1, nano::dev::genesis_key.pub, nano::MBAN_ratio * 2, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
-	auto block1c = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, previous1, nano::dev::genesis_key.pub, nano::MBAN_ratio * 3, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block1a = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, previous1, nano::dev::genesis_key.pub, nano::Knano_ratio, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block1b = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, previous1, nano::dev::genesis_key.pub, nano::Knano_ratio * 2, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
+	auto block1c = std::make_shared<nano::state_block> (nano::dev::genesis_key.pub, previous1, nano::dev::genesis_key.pub, nano::Knano_ratio * 3, nano::test::random_hash (), nano::dev::genesis_key.prv, nano::dev::genesis_key.pub, 0);
 
 	nano::qualified_root root1 = block1a->qualified_root ();
 
 	// Create blocks for second root
 	auto const previous2 = nano::test::random_hash ();
 	nano::keypair key2;
-	auto block2a = std::make_shared<nano::state_block> (key2.pub, previous2, key2.pub, nano::MBAN_ratio, nano::test::random_hash (), key2.prv, key2.pub, 0);
-	auto block2b = std::make_shared<nano::state_block> (key2.pub, previous2, key2.pub, nano::MBAN_ratio * 2, nano::test::random_hash (), key2.prv, key2.pub, 0);
+	auto block2a = std::make_shared<nano::state_block> (key2.pub, previous2, key2.pub, nano::Knano_ratio, nano::test::random_hash (), key2.prv, key2.pub, 0);
+	auto block2b = std::make_shared<nano::state_block> (key2.pub, previous2, key2.pub, nano::Knano_ratio * 2, nano::test::random_hash (), key2.prv, key2.pub, 0);
 
 	nano::qualified_root root2 = block2a->qualified_root ();
 
 	// Create block for third root
 	nano::keypair key3;
 	auto const previous3 = nano::test::random_hash ();
-	auto block3 = std::make_shared<nano::state_block> (key3.pub, previous3, key3.pub, nano::MBAN_ratio, nano::test::random_hash (), key3.prv, key3.pub, 0);
+	auto block3 = std::make_shared<nano::state_block> (key3.pub, previous3, key3.pub, nano::Knano_ratio, nano::test::random_hash (), key3.prv, key3.pub, 0);
 
 	nano::qualified_root root3 = block3->qualified_root ();
 
