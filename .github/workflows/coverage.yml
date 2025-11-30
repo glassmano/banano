@@ -7,8 +7,8 @@ on:
         description: "label to append to run"
         default: "Scheduled"
         required: true
-  schedule:
-    - cron: "0 1 * * 0"
+  # schedule:
+    # - cron: "0 1 * * 0"
 jobs:
   coverage_test:
     name: Coverage Test [TEST_USE_ROCKSDB=${{ matrix.TEST_USE_ROCKSDB }}]
