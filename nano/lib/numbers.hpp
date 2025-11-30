@@ -20,10 +20,10 @@ using uint256_t = boost::multiprecision::uint256_t;
 using uint512_t = boost::multiprecision::uint512_t;
 
 // SI dividers
-nano::uint128_t const MBAN_ratio = nano::uint128_t ("100000000000000000000000000000000000"); // 10^35 = 1 million banano
-nano::uint128_t const BAN_ratio = nano::uint128_t ("100000000000000000000000000000"); // 10^29 = 1 banano
+nano::uint128_t const Knano_ratio = nano::uint128_t ("100000000000000000000000000000000000"); // 10^35 = 1 million banano
+nano::uint128_t const nano_ratio = nano::uint128_t ("100000000000000000000000000000"); // 10^29 = 1 banano
 nano::uint128_t const banoshi_ratio = nano::uint128_t ("1000000000000000000000000000"); // 10^27 = 1 hundredth banano
-nano::uint128_t const RAW_ratio = nano::uint128_t ("1"); // 10^0
+nano::uint128_t const raw_ratio = nano::uint128_t ("1"); // 10^0
 
 using bucket_index = uint64_t;
 using priority_timestamp = uint64_t; // Priority within the bucket
