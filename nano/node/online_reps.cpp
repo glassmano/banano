@@ -34,7 +34,7 @@ void nano::online_reps::start ()
 		cached_trended = trended_result.trended;
 
 		logger.info (nano::log::type::online_reps, "Initial trended weight: {} (samples: {})",
-		nano::uint128_union{ trended_result.trended }.format_balance (BAN_ratio, 1, true),
+		nano::uint128_union{ trended_result.trended }.format_balance (nano_ratio, 1, true),
 		trended_result.samples);
 	}
 
@@ -160,7 +160,7 @@ void nano::online_reps::sample ()
 	}
 
 	logger.info (nano::log::type::online_reps, "Updated trended weight: {} (samples: {})",
-	nano::uint128_union{ trended_result.trended }.format_balance (BAN_ratio, 1, true),
+	nano::uint128_union{ trended_result.trended }.format_balance (nano_ratio, 1, true),
 	trended_result.samples);
 }
 

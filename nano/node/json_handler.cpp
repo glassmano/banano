@@ -725,7 +725,7 @@ void nano::json_handler::account_info ()
 				auto account_weight (node.ledger.weight_exact (transaction, account));
 				response_l.put ("weight", account_weight.convert_to<std::string> ());
 				response_l.put ("weight_decimal", convert_raw_to_dec (account_weight.convert_to<std::string> ()));
-				response_l.put ("weight_decimal_millions", convert_raw_to_dec (account_weight.convert_to<std::string> (), nano::MBAN_ratio));
+				response_l.put ("weight_decimal_millions", convert_raw_to_dec (account_weight.convert_to<std::string> (), nano::Knano_ratio));
 			}
 			if (receivable)
 			{
@@ -3033,7 +3033,7 @@ void nano::json_handler::nano_to_raw ()
 	auto amount (amount_impl ());
 	if (!ec)
 	{
-		auto result (amount.number () * nano::BAN_ratio);
+		auto result (amount.number () * nano::nano_ratio);
 		if (result > amount.number ())
 		{
 			response_l.put ("amount", result.convert_to<std::string> ());
@@ -3051,7 +3051,7 @@ void nano::json_handler::raw_to_nano ()
 	auto amount (amount_impl ());
 	if (!ec)
 	{
-		auto result (amount.number () / nano::BAN_ratio);
+		auto result (amount.number () / nano::nano_ratio);
 		response_l.put ("amount", result.convert_to<std::string> ());
 	}
 	response_errors ();
